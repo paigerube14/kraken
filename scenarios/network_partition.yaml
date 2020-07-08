@@ -1,0 +1,21 @@
+apiVersion: pingcap.com/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: network-partition-example
+  namespace: default
+spec:
+  action: partition
+  mode: one
+  direction: from
+  selector:
+
+  target:
+    selector:
+      namespaces:
+        - openshift-dns
+      labelSelectors:
+        "dns.operator.openshift.io/daemonset-dns": "default"
+    mode: one
+  duration: "10s"
+  scheduler:
+    cron: "@every 15s"

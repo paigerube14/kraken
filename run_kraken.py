@@ -12,6 +12,13 @@ import kraken.invoke.command as runcommand
 import pyfiglet
 
 
+# Stop all running network scenarios
+def stop_network_scenarios(network_scenarios):
+
+    for scenario in network_scenarios:
+        runcommand.invoke("kubectl delete -f " + str(scenario))
+
+
 # Main function
 def main(cfg):
     # Start kraken
@@ -24,6 +31,7 @@ def main(cfg):
             config = yaml.full_load(f)
         kubeconfig_path = config["kraken"]["kubeconfig_path"]
         scenarios = config["kraken"]["scenarios"]
+        network_scenarios = config["kraken"]["network_scenarios"]
         cerberus_enabled = config["cerberus"]["cerberus_enabled"]
         wait_duration = config["tunings"]["wait_duration"]
         iterations = config["tunings"]["iterations"]
@@ -38,6 +46,14 @@ def main(cfg):
         # find node kraken might be running on
         kubecli.find_kraken_node()
 
+
+        # if network scenarios, see if chaos testing namespace
+        '''if network_scenarios:
+        curl -sSL https://raw.githubusercontent.com/pingcap/chaos-mesh/master/examples/web-show/deploy.sh | bash
+            output = runcommand.invoke("kubectl get namespaces | grep chaos-testing")
+            if output:
+                runcommand.invoke("curl -sSL https://raw.githubusercontent.com/pingcap/chaos-mesh/master/install.sh | bash -s -- --local kind")
+'''
         # Cluster info
         logging.info("Fetching cluster info")
         cluster_version = runcommand.invoke("kubectl get clusterversion")
@@ -59,6 +75,7 @@ def main(cfg):
                          % str(iterations))
             iterations = int(iterations)
 
+        running_network_scenarios = []
         # Loop to run the chaos starts here
         while (int(iteration) < iterations):
             # Inject chaos scenarios specified in the config
@@ -93,7 +110,23 @@ def main(cfg):
             except Exception as e:
                 logging.error("Failed to run scenario: %s. Encountered the following exception: %s"
                               % (scenario, e))
+            try:
+                # Loop to run the scenarios starts here
+                for net_scenario in network_scenarios:
+                    logging.info("Injecting scenario: %s" % (net_scenario))
+                    runcommand.invoke("kubectl apply -f %s" % (net_scenario))
+                    running_network_scenarios.append(net_scenario)
+                    logging.info("Scenario: %s has been successfully injected!" % (net_scenario))
+                    logging.info("Waiting for the specified duration: %s" % (wait_duration))
+                    time.sleep(wait_duration)
+            except Exception as e:
+                logging.error("Failed to run scenario: %s. Encountered the following exception: %s"
+                              % (scenario, e))
             iteration += 1
+        #stop_network_scenarios(running_network_scenarios)
+
+        #curl -sSL https://raw.githubusercontent.com/pingcap/chaos-mesh/master/install.sh | bash -s -- --template | kubectl delete -f -
+        #  curl -sSL https://raw.githubusercontent.com/pingcap/chaos-mesh/master/examples/web-show/deploy.sh | bash -s -- -d
     else:
         logging.error("Cannot find a config at %s, please check" % (cfg))
         sys.exit(1)
