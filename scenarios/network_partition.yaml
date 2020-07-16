@@ -1,20 +1,19 @@
 apiVersion: pingcap.com/v1alpha1
 kind: NetworkChaos
 metadata:
-  name: network-partition-example
-  namespace: default
+  name: network-partition-example2
+  namespace: chaos2
 spec:
   action: partition
   mode: one
   direction: from
   selector:
-
+    namespace:
+      - openshift-etcd
   target:
     selector:
       namespaces:
         - openshift-dns
-      labelSelectors:
-        "dns.operator.openshift.io/daemonset-dns": "default"
     mode: one
   duration: "10s"
   scheduler:

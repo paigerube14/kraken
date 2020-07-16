@@ -48,12 +48,16 @@ def main(cfg):
 
 
         # if network scenarios, see if chaos testing namespace
-        '''if network_scenarios:
-        curl -sSL https://raw.githubusercontent.com/pingcap/chaos-mesh/master/examples/web-show/deploy.sh | bash
+        if network_scenarios:
             output = runcommand.invoke("kubectl get namespaces | grep chaos-testing")
-            if output:
+            logging.info("output:"+ str(output)+"!")
+            if not output:
+                logging.info("start chaos mesh")
                 runcommand.invoke("curl -sSL https://raw.githubusercontent.com/pingcap/chaos-mesh/master/install.sh | bash -s -- --local kind")
-'''
+                runcommand.invoke(
+                    "curl -sSL https://raw.githubusercontent.com/pingcap/chaos-mesh/master/examples/web-show/deploy.sh | bash")
+            logging.info("watch network chaos at " + str("http://localhost:8081"))
+
         # Cluster info
         logging.info("Fetching cluster info")
         cluster_version = runcommand.invoke("kubectl get clusterversion")
@@ -124,9 +128,9 @@ def main(cfg):
                               % (scenario, e))
             iteration += 1
         #stop_network_scenarios(running_network_scenarios)
+        # runcommand.invoke("curl -sSL https://raw.githubusercontent.com/pingcap/chaos-mesh/master/examples/web-show/deploy.sh | bash -s -- -d")
+        #runcommand.invoke("curl -sSL https://raw.githubusercontent.com/pingcap/chaos-mesh/master/install.sh | bash -s -- --template | kubectl delete -f -")
 
-        #curl -sSL https://raw.githubusercontent.com/pingcap/chaos-mesh/master/install.sh | bash -s -- --template | kubectl delete -f -
-        #  curl -sSL https://raw.githubusercontent.com/pingcap/chaos-mesh/master/examples/web-show/deploy.sh | bash -s -- -d
     else:
         logging.error("Cannot find a config at %s, please check" % (cfg))
         sys.exit(1)

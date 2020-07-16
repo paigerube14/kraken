@@ -2,7 +2,7 @@ apiVersion: pingcap.com/v1alpha1
 kind: NetworkChaos
 metadata:
   name: network-bandwidth-example
-  namespace: chaos2
+  namespace: chaos-paige
 spec:
   action: bandwidth
   mode: one

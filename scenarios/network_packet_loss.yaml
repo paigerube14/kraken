@@ -1,0 +1,14 @@
+apiVersion: pingcap.com/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: network-loss-example
+  namespace: chaos-testing
+spec:
+  action: loss
+  mode: one
+  loss:
+    loss: "25"
+    correlation: "25"
+  duration: "10s"
+  scheduler:
+    cron: "@every 15s"
