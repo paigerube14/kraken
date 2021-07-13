@@ -9,7 +9,7 @@ pod_file=CI/scenarios/hello_pod.yaml
 
 
 function funtional_test_pod_deletion {
-    python3 run_kraken.py -c CI/config/config.yaml
+    python3 run_kraken.py -c CI/config/pod_config.yaml
     echo "${test_name} test: Success"
 }
 

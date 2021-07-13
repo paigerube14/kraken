@@ -9,8 +9,8 @@ scenarios:
     - podAction:
         matches:
           - labels:
-              namespace: "openshift-etcd"
-              selector: "k8s-app=etcd"
+              namespace: "default"
+              selector: "hello-openshift"
         filters:
           - randomSample:
               size: 1
@@ -18,3 +18,14 @@ scenarios:
           - kill:
               probability: 1
               force: true
+    - podAction:
+        matches:
+          - labels:
+              namespace: "default"
+              selector: "hello-openshift"
+        retries:
+          retriesTimeout:
+            timeout: 180
+        actions:
+          - checkPodCount:
+              count: 1
