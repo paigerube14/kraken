@@ -12,4 +12,3 @@ function funtional_test_node_crash {
 }
 
 funtional_test_node_crash
-

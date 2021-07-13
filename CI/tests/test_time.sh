@@ -12,4 +12,3 @@ function funtional_test_time_scenario {
 }
 
 funtional_test_time_scenario
-
