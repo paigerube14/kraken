@@ -2,7 +2,7 @@ node_scenarios:
   - actions:
     - node_reboot_scenario
     node_name:
-    label_selector: node-role.kubernetes.io/master
+    label_selector: node-role.kubernetes.io/worker
     instance_kill_count: 1
     timeout: 120
     cloud_type: aws

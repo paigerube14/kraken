@@ -17,4 +17,4 @@ scenarios:
               size: 3
         actions:
           - kill:
-              probability: .7
+              probability: .9
