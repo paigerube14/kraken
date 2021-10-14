@@ -71,42 +71,43 @@ def inject_node_scenario(action, node_scenario, node_scenario_object):
     service = node_scenario.get("service", "")
     ssh_private_key = node_scenario.get("ssh_private_key", "~/.ssh/id_rsa")
     # Get the node to apply the scenario
-    node = common_node_functions.get_node(node_name, label_selector)
-
-    if node_general and action not in generic_cloud_scenarios:
-        logging.info("Scenario: " + action + " is not set up for generic cloud type, skipping action")
-    else:
-        if action == "node_start_scenario":
-            node_scenario_object.node_start_scenario(instance_kill_count, node, timeout)
-        elif action == "node_stop_scenario":
-            node_scenario_object.node_stop_scenario(instance_kill_count, node, timeout)
-        elif action == "node_stop_start_scenario":
-            node_scenario_object.node_stop_start_scenario(instance_kill_count, node, timeout)
-        elif action == "node_termination_scenario":
-            node_scenario_object.node_termination_scenario(instance_kill_count, node, timeout)
-        elif action == "node_reboot_scenario":
-            node_scenario_object.node_reboot_scenario(instance_kill_count, node, timeout)
-        elif action == "stop_start_kubelet_scenario":
-            node_scenario_object.stop_start_kubelet_scenario(instance_kill_count, node, timeout)
-        elif action == "stop_kubelet_scenario":
-            node_scenario_object.stop_kubelet_scenario(instance_kill_count, node, timeout)
-        elif action == "node_crash_scenario":
-            node_scenario_object.node_crash_scenario(instance_kill_count, node, timeout)
-        elif action == "stop_start_helper_node_scenario":
-            if node_scenario["cloud_type"] != "openstack":
-                logging.error(
-                    "Scenario: " + action + " is not supported for "
-                    "cloud type " + node_scenario["cloud_type"] + ", skipping action"
-                )
-            else:
-                if not node_scenario["helper_node_ip"]:
-                    logging.error("Helper node IP address is not provided")
-                    sys.exit(1)
-                node_scenario_object.helper_node_stop_start_scenario(
-                    instance_kill_count, node_scenario["helper_node_ip"], timeout
-                )
-                node_scenario_object.helper_node_service_status(
-                    node_scenario["helper_node_ip"], service, ssh_private_key, timeout
-                )
+    node_name_list = node_name.split(",")
+    for single_node_name in node_name_list:
+        node = common_node_functions.get_node(single_node_name, label_selector)
+        if node_general and action not in generic_cloud_scenarios:
+            logging.info("Scenario: " + action + " is not set up for generic cloud type, skipping action")
         else:
-            logging.info("There is no node action that matches %s, skipping scenario" % action)
+            if action == "node_start_scenario":
+                node_scenario_object.node_start_scenario(instance_kill_count, node, timeout)
+            elif action == "node_stop_scenario":
+                node_scenario_object.node_stop_scenario(instance_kill_count, node, timeout)
+            elif action == "node_stop_start_scenario":
+                node_scenario_object.node_stop_start_scenario(instance_kill_count, node, timeout)
+            elif action == "node_termination_scenario":
+                node_scenario_object.node_termination_scenario(instance_kill_count, node, timeout)
+            elif action == "node_reboot_scenario":
+                node_scenario_object.node_reboot_scenario(instance_kill_count, node, timeout)
+            elif action == "stop_start_kubelet_scenario":
+                node_scenario_object.stop_start_kubelet_scenario(instance_kill_count, node, timeout)
+            elif action == "stop_kubelet_scenario":
+                node_scenario_object.stop_kubelet_scenario(instance_kill_count, node, timeout)
+            elif action == "node_crash_scenario":
+                node_scenario_object.node_crash_scenario(instance_kill_count, node, timeout)
+            elif action == "stop_start_helper_node_scenario":
+                if node_scenario["cloud_type"] != "openstack":
+                    logging.error(
+                        "Scenario: " + action + " is not supported for "
+                        "cloud type " + node_scenario["cloud_type"] + ", skipping action"
+                    )
+                else:
+                    if not node_scenario["helper_node_ip"]:
+                        logging.error("Helper node IP address is not provided")
+                        sys.exit(1)
+                    node_scenario_object.helper_node_stop_start_scenario(
+                        instance_kill_count, node_scenario["helper_node_ip"], timeout
+                    )
+                    node_scenario_object.helper_node_service_status(
+                        node_scenario["helper_node_ip"], service, ssh_private_key, timeout
+                    )
+            else:
+                logging.info("There is no node action that matches %s, skipping scenario" % action)
