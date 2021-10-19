@@ -16,9 +16,11 @@ class Azure:
         # Acquire a credential object using CLI-based authentication.
         credentials = DefaultAzureCredential()
         logging.info("credential " + str(credentials))
-        az_account = runcommand.invoke("az account list -o yaml")
-        az_account_yaml = yaml.load(az_account, Loader=yaml.FullLoader)
-        subscription_id = az_account_yaml[0]["id"]
+
+        subscription_id = runcommand.invoke("echo $AZURE_SUBSCRIPTION_ID")
+        # az_account = runcommand.invoke("az account list -o yaml")
+        # az_account_yaml = yaml.load(az_account, Loader=yaml.FullLoader)
+        # subscription_id = az_account_yaml[0]["id"]
         self.compute_client = ComputeManagementClient(credentials, subscription_id)
 
     # Get the instance ID of the node
