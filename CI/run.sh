@@ -16,8 +16,8 @@ rm -f CI/$results_file_name
 results="CI/$results_file_name"
 
 # Prep the results.markdown file
-echo 'Test                   | Result | Duration' >> $results
-echo '-----------------------|--------|---------' >> $results
+echo 'Test                   | Result | Duration | Output' >> $results
+echo '-----------------------|--------|---------|-----------' >> $results
 
 # Run each test
 for test_name in `cat CI/tests/my_tests`

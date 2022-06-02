@@ -20,7 +20,10 @@ jobs:
           sudo apt-get install build-essential python3-dev
           pip install -r requirements.txt
       - name: Run CI
-        run: ./CI/run.sh
+        run: | 
+          ./CI/run.sh
+          cat results.markdown >> $GITHUB_STEP_SUMMARY
+          CI/out/*
       - name: Login in quay
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: docker login quay.io -u ${QUAY_USER} -p ${QUAY_TOKEN}
