@@ -17,6 +17,9 @@ jobs:
         run: docker build --no-cache -t quay.io/chaos-kubox/krkn containers/
       - name: Create multi-node KinD cluster
         uses: chaos-kubox/actions/kind@main
+      - name: find kind cluster 
+        run: | 
+          kind get kubeconfig
       - name: Install environment
         run: |
           sudo apt-get install build-essential python3-dev
