@@ -19,7 +19,8 @@ jobs:
         uses: chaos-kubox/actions/kind@main
       - name: find kind cluster 
         run: | 
-          kind get kubeconfig
+          mkdir /root/.kube
+          kind get kubeconfig >> /root/.kube/config
       - name: Install environment
         run: |
           sudo apt-get install build-essential python3-dev
