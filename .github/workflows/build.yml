@@ -17,19 +17,15 @@ jobs:
         run: docker build --no-cache -t quay.io/chaos-kubox/krkn containers/
       - name: Create multi-node KinD cluster
         uses: chaos-kubox/actions/kind@main
-      - name: find kind cluster 
-        run: | 
-          mkdir /root/.kube
-          kind get kubeconfig >> /root/.kube/config
       - name: Install environment
         run: |
           sudo apt-get install build-essential python3-dev
           pip install -r requirements.txt
       - name: Run CI
         run: | 
-          ./CI/run.sh
+          ./CI/run.sh -c kind-config.yml
           cat results.markdown >> $GITHUB_STEP_SUMMARY
-          CI/out/*
+          CI/out/* >> $GITHUB_STEP_SUMMARY
       - name: Login in quay
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: docker login quay.io -u ${QUAY_USER} -p ${QUAY_TOKEN}
