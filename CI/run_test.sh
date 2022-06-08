@@ -29,12 +29,14 @@ then
   duration=$SECONDS
   duration=$(get_time_format $duration)
   echo "$ci_test: Successful"
-  echo "$ci_test | Pass | $duration | $ci_results " >> $results_file
+  echo "$ci_test | Pass | $duration  " >> $results_file
   count=$retries
 else
   duration=$SECONDS
   duration=$(get_time_format $duration)
   echo "$ci_test: Failed"
-  echo "$ci_test | Fail | $duration | $ci_results" >> $results_file
+  echo "$ci_test | Fail | $duration =" >> $results_file
   echo "Logs for "$ci_test
 fi
+
+cat $ci_results
