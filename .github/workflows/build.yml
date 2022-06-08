@@ -23,7 +23,8 @@ jobs:
           pip install -r requirements.txt
       - name: Run CI
         run: | 
-          ./CI/run.sh -c kind-config.yml
+          kubectl config view --raw >> kube_config.yaml
+          ./CI/run.sh -c kube_config.yaml
           cat CI/results.markdown >> $GITHUB_STEP_SUMMARY
           CI/out/* >> $GITHUB_STEP_SUMMARY
       - name: Login in quay
