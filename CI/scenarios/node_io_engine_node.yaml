@@ -32,4 +32,4 @@ spec:
 
              ## enter the comma separated target nodes name
             - name: TARGET_NODES
-              value:
+              value: 

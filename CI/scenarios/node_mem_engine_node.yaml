@@ -25,4 +25,4 @@ spec:
 
             # ENTER THE COMMA SEPARATED TARGET NODES NAME
             - name: TARGET_NODES
-              value:
+              value: 
