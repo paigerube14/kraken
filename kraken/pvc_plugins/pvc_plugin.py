@@ -49,14 +49,28 @@ def _find_pvc(core_v1, pvc_name_pattern, pod_name_pattern, namespace_pattern):
             finished = True
     return pvc
 
+# List pods in the given namespace
+def list_pods(core_v1, namespace, label_selector=None):
+    try:
+        if label_selector:
+            ret = core_v1.list_namespaced_pod(namespace, pretty=True, label_selector=label_selector)
+        else:
+            ret = core_v1.list_namespaced_pod(namespace, pretty=True)
+    except ApiException as e:
+        print(
+            "Exception when calling \
+                       CoreV1Api->list_namespaced_pod: %s\n"
+            % e
+        )
+        raise e
+    return ret
+
 def _find_pods(core_v1, pod_name_pattern, namespace_pattern):
     pods: typing.List[V1Pod] = []
     _continue = None
     finished = False
     while not finished:
-        pod_response: V1PodList = core_v1.list_pod_for_all_namespaces(
-            watch=False
-        )
+        pod_response: V1PodList = list_pods( core_v1, namespace_pattern)
         for pod in pod_response.items:
             pod: V1Pod
             if (pod_name_pattern is None or pod_name_pattern.match(pod.metadata.name)) and \
@@ -69,24 +83,25 @@ def _find_pods(core_v1, pod_name_pattern, namespace_pattern):
 
 
 @dataclass
-class Pod:
+class PVC:
     namespace: str
     name: str
+    pod_name: str
 
 
 @dataclass
 class PVCFillSuccessOutput:
-    pods: typing.Dict[int, Pod] = field(metadata={
+    pods: typing.Dict[int, PVC] = field(metadata={
         "name": "Pods removed",
-        "description": "Map between timestamps and the pods removed. The timestamp is provided in nanoseconds."
+        "description": "Map between timestamps and the pvcs that have been filled. The timestamp is provided in nanoseconds."
     })
 
 
 @dataclass
 class PVCWaitSuccessOutput:
-    pods: typing.List[Pod] = field(metadata={
-        "name": "Pods",
-        "description": "List of pods that have been found to run."
+    pvc: typing.List[PVC] = field(metadata={
+        "name": "PVC's",
+        "description": "List of pvcs that have been filled."
     })
 
 
