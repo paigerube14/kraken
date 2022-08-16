@@ -31,16 +31,33 @@ def setup_kubernetes(kubeconfig_path):
     return client.ApiClient(configuration=client_config)
 
 
+def list_continue_helper(func, *args, **keyword_args):
+    ret_overall = []
+    try:
+        ret = func(*args, **keyword_args)
+        ret_overall.append(ret)
+        continue_string = ret.metadata._continue
+
+        while continue_string:
+            ret = func(*args, **keyword_args, _continue=continue_string)
+            ret_overall.append(ret)
+            continue_string = ret.metadata._continue
+    except ApiException as e:
+        print("Exception when calling CoreV1Api->%s: %s\n" % (str(func), e))
+
+    return ret_overall
+
 def _find_pods(core_v1, label_selector, name_pattern, namespace_pattern):
     pods: typing.List[V1Pod] = []
     _continue = None
     finished = False
     while not finished:
-        pod_response: V1PodList = core_v1.list_pod_for_all_namespaces(
-            watch=False,
+        pod_response: V1PodList= list_continue_helper(
+            core_v1.list_pod_for_all_namespaces, watch=False,
             label_selector=label_selector
         )
-        for pod in pod_response.items:
+
+        for pod in pod_response:
             pod: V1Pod
             if (name_pattern is None or name_pattern.match(pod.metadata.name)) and \
                     namespace_pattern.match(pod.metadata.namespace):
