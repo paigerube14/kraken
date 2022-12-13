@@ -57,6 +57,8 @@ def run(scenarios_list, config, litmus_uninstall, wait_duration, litmus_namespac
 # Install litmus and wait until pod is running
 def install_litmus(version, namespace):
     logging.info("Installing version %s of litmus in namespace %s" % (version, namespace))
+    runcommand.invoke(
+        "kubectl apply -f https://raw.githubusercontent.com/paigerube14/kraken/my_pod_kill/scenarios/litmus_namespace.yaml")
     litmus_install = runcommand.invoke(
         "kubectl -n %s apply -f " "https://litmuschaos.github.io/litmus/litmus-operator-%s.yaml" % (namespace, version)
     )
