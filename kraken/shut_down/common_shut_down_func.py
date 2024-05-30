@@ -7,6 +7,7 @@ from ..cerberus import setup as cerberus
 from ..post_actions import actions as post_actions
 from ..node_actions.aws_node_scenarios import AWS
 from ..node_actions.openstack_node_scenarios import OPENSTACKCLOUD
+from ..plugins.node_scenarios.ibmcloud_plugin import IbmCloud
 from ..node_actions.az_node_scenarios import Azure
 from ..node_actions.gcp_node_scenarios import GCP
 from krkn_lib.k8s import KrknKubernetes
@@ -53,6 +54,8 @@ def cluster_shut_down(shut_down_config, kubecli: KrknKubernetes):
         cloud_object = OPENSTACKCLOUD()
     elif cloud_type.lower() in ["azure", "az"]:
         cloud_object = Azure()
+    elif cloud_type.lower() in ["ibm", "ibmcloud"]:
+        cloud_object = IbmCloud()
     else:
         logging.error(
             "Cloud type %s is not currently supported for cluster shut down" %
