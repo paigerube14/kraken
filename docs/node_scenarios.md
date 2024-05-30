@@ -109,7 +109,7 @@ This cloud type uses a different configuration style, see actions below and [exa
     instance_count: 1                   # Number of nodes to perform action/select that match the label selector                                             
     timeout: 30                        # Duration to wait for completion of node scenario injection
     skip_openshift_checks: False       # Set to True if you don't want to wait for the status of the nodes to change on OpenShift before passing the scenario 
-    ```
+```
 
 
 
