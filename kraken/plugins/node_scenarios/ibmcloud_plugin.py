@@ -40,7 +40,6 @@ class IbmCloud:
             self.service.set_service_url(service_url)
         except Exception as e: 
             logging.error("error authenticating" + str(e))
-            sys.exit(1)
 
 
     # Get the instance ID of the node

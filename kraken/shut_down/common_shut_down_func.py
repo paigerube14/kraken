@@ -64,11 +64,13 @@ def cluster_shut_down(shut_down_config, kubecli: KrknKubernetes):
         # removed_exit
         # sys.exit(1)
         raise RuntimeError()
-
+    logging.info('set cloud type')
     nodes = kubecli.list_nodes()
+    logging.info('nodes ' + str(nodes))
     node_id = []
     for node in nodes:
         instance_id = cloud_object.get_instance_id(node)
+        logging.info('get node id ' + str(instance_id))
         node_id.append(instance_id)
     logging.info("node id list " + str(node_id))
     for _ in range(runs):
@@ -155,8 +157,7 @@ def run(scenarios_list, config, wait_duration, kubecli: KrknKubernetes, telemetr
 
         with open(config_path, "r") as f:
             shut_down_config_yaml = yaml.full_load(f)
-            shut_down_config_scenario = \
-                shut_down_config_yaml["cluster_shut_down_scenario"]
+            shut_down_config_scenario = shut_down_config_yaml["cluster_shut_down_scenario"]
             start_time = int(time.time())
             try:
                 cluster_shut_down(shut_down_config_scenario, kubecli)
