@@ -221,7 +221,6 @@ def metrics(
                         metrics_list.append(metric)
                     except ValueError:
                         pass
-        logging.info('metric list'+  str(len(metrics_list)) )
         if elastic:
             result = elastic.upload_metrics_to_elasticsearch(
                 run_uuid=run_uuid, index=elastic_metrics_index, raw_data=metrics_list
