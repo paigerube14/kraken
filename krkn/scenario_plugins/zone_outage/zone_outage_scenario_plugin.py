@@ -10,7 +10,7 @@ from krkn import utils
 from krkn.scenario_plugins.abstract_scenario_plugin import AbstractScenarioPlugin
 from krkn.scenario_plugins.native.network import cerberus
 from krkn.scenario_plugins.node_actions.aws_node_scenarios import AWS
-
+from krkn.scenario_plugins.node_actions.az_node_scenarios import Azure
 
 class ZoneOutageScenarioPlugin(AbstractScenarioPlugin):
     def run(
@@ -36,6 +36,8 @@ class ZoneOutageScenarioPlugin(AbstractScenarioPlugin):
 
                 if cloud_type.lower() == "aws":
                     cloud_object = AWS()
+                elif cloud_type.lower() == "az" or cloud_type.lower() == "azure":
+                    cloud_object = Azure()
                 else:
                     logging.error(
                         "ZoneOutageScenarioPlugin Cloud type %s is not currently supported for "

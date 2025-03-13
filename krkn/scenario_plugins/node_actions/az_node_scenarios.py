@@ -6,6 +6,7 @@ from krkn.scenario_plugins.node_actions.abstract_node_scenarios import (
     abstract_node_scenarios,
 )
 from azure.mgmt.compute import ComputeManagementClient
+from azure.mgmt.network import NetworkManagementClient
 from azure.identity import DefaultAzureCredential
 from krkn_lib.k8s import KrknKubernetes
 from krkn_lib.models.k8s import AffectedNode, AffectedNodeStatus
@@ -22,6 +23,7 @@ class Azure:
         logger.setLevel(logging.WARNING)
         subscription_id = os.getenv("AZURE_SUBSCRIPTION_ID")
         self.compute_client = ComputeManagementClient(credentials, subscription_id,logging=logger)
+        self.network_client = NetworkManagementClient(credentials, subscription_id)
         
 
     # Get the instance ID of the node
@@ -154,7 +156,109 @@ class Azure:
                     affected_node.set_affected_node_status("terminated", end_time - start_time)
                 return True
 
+    # Describe network acl
+    def describe_network_acls(self, vpc_id, subnet_id):
+        try:
+            # network security group 
+            response = self.compute_client.virtual_machines.describe_network_acls(
+                Filters=[
+                    {"Name": "vpc-id", "Values": [vpc_id]},
+                    {"Name": "association.subnet-id", "Values": [subnet_id]},
+                ]
+            )
+        except Exception as e:
+            logging.error(
+                "Failed to describe network acl: %s."
+                "Make sure you have aws cli configured on the host and set for the region of your vpc/subnet"
+                % (e)
+            )
 
+            raise RuntimeError()
+        associations = response["NetworkAcls"][0]["Associations"]
+        # grab the current network_acl in use
+        original_acl_id = response["NetworkAcls"][0]["Associations"][0]["NetworkAclId"]
+        return associations, original_acl_id
+
+    # Delete network acl
+    def delete_network_acl(self, acl_id):
+        try:
+            logging.info("Deleting the network acl: %s" % (acl_id))
+            self.compute_client.virtual_machines.delete_network_acl(NetworkAclId=acl_id)
+        except Exception as e:
+            logging.error(
+                "Failed to delete network_acl %s: %s"
+                "Make sure you have aws cli configured on the host and set for the region of your vpc/subnet"
+                % (acl_id, e)
+            )
+
+            raise RuntimeError()
+
+    # Detach volume
+    def detach_volumes(self, volumes_ids: list):
+        for volume in volumes_ids:
+            try:
+                self.compute_client.virtual_machines.(VolumeId=volume, Force=True)
+            except Exception as e:
+                logging.error(
+                    "Detaching volume %s failed with exception: %s"
+                    % (volume, e)
+                )
+
+    # Attach volume
+    def attach_volume(self, attachment: dict):
+        try:
+            if self.get_volume_state(attachment["VolumeId"]) == "in-use":
+                logging.info(
+                    "Volume %s is already in use." % attachment["VolumeId"]
+                )
+                return
+            logging.info(
+                "Attaching the %s volumes to instance %s."
+                % (attachment["VolumeId"], attachment["InstanceId"])
+            )
+            self.compute_client.virtual_machines.attach_volume(
+                InstanceId=attachment["InstanceId"],
+                Device=attachment["Device"],
+                VolumeId=attachment["VolumeId"]
+            )
+        except Exception as e:
+            logging.error(
+                "Failed attaching disk %s to the %s instance. "
+                "Encountered following exception: %s"
+                % (attachment['VolumeId'], attachment['InstanceId'], e)
+            )
+            raise RuntimeError()
+
+    # Get IDs of node volumes
+    def get_volumes_ids(self, instance_id: list):
+        response = self.describe_instances(InstanceIds=instance_id)
+        instance_attachment_details = response["Reservations"][0]["Instances"][0]["BlockDeviceMappings"]
+        root_volume_device_name = self.get_root_volume_id(instance_id)
+        volume_ids = []
+        for device in instance_attachment_details:
+            if device["DeviceName"] != root_volume_device_name:
+                volume_id = device["Ebs"]["VolumeId"]
+                volume_ids.append(volume_id)
+        return volume_ids
+
+    # Get volumes attachment details
+    def get_volume_attachment_details(self, volume_ids: list):
+        response = self.compute_client.virtual_machines.describe_volumes(VolumeIds=volume_ids)
+        volumes_details = response["Volumes"]
+        return volumes_details
+
+    # Get root volume
+    def get_root_volume_id(self, instance_id):
+        instance_id = instance_id[0]
+        instance = self.boto_resource.Instance(instance_id)
+        root_volume_id = instance.root_device_name
+        return root_volume_id
+
+    # Get volume state
+    def get_volume_state(self, volume_id: str):
+        volume = self.boto_resource.Volume(volume_id)
+        state = volume.state
+        return state
 # krkn_lib
 class azure_node_scenarios(abstract_node_scenarios):
     def __init__(self, kubecli: KrknKubernetes, affected_nodes_status: AffectedNodeStatus):
