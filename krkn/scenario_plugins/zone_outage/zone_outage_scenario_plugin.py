@@ -9,6 +9,8 @@ from krkn_lib.utils import log_exception
 from krkn import utils
 from krkn.scenario_plugins.abstract_scenario_plugin import AbstractScenarioPlugin
 from krkn.scenario_plugins.native.network import cerberus
+from krkn.scenario_plugins.node_actions.node_actions_scenario_plugin import NodeActionsScenarioPlugin
+from krkn.scenario_plugins.node_actions import common_node_functions
 from krkn.scenario_plugins.node_actions.aws_node_scenarios import AWS
 from krkn.scenario_plugins.node_actions.gcp_node_scenarios import GCP
 
@@ -51,20 +53,20 @@ class ZoneOutageScenarioPlugin(AbstractScenarioPlugin):
             return 0
         
     def node_based_zone(self, scenario_config: dict[str, any]):
-
-        vpc_id = scenario_config["vpc_id"]
-        subnet_ids = scenario_config["subnet_id"]
+        
+        region = scenario_config["region"]
+        zone = scenario_config["zone"]
         duration = scenario_config["duration"]
         cloud_type = scenario_config["cloud_type"]
-        # Add support for user-provided default network ACL
-        default_acl_id = scenario_config.get("default_acl_id")
-        ids = {}
-        acl_ids_created = []
-        for subnet_id in subnet_ids:
-            logging.info("Targeting subnet_id")
-            network_association_ids = []
-            associations, original_acl_id = self.cloud_object.describe_network_acls(
-                vpc_id, subnet_id
+        label_selector = f"topology.kubernetes.io/zone={zone}"
+        # get list of nodes in zone/region
+        nodes = common_node_functions.get_node(
+                label_selector, instance_kill_count, kubecli
+            )
+
+        NodeActionsScenarioPlugin.multiprocess_nodes(
+                nodes, self.cloud_object, "node_start_scenario", scenario_config
+        )
 
     def network_based_zone(self, scenario_config: dict[str, any]):
 
