@@ -26,12 +26,13 @@ class ZoneOutageScenarioPlugin(AbstractScenarioPlugin):
         try:
             with open(scenario, "r") as f:
                 zone_outage_config_yaml = yaml.full_load(f)
-
+                logging.info('load file')
                 if cloud_type.lower() == "aws":
                     self.cloud_object = AWS()
                     self.network_based_zone(zone_outage_config_yaml)
                 elif cloud_type.lower() == "gcp":
                     cloud_object = GCP()
+                    self.node_based_zone(zone_outage_config_yaml)
                 else:
                     logging.error(
                         "ZoneOutageScenarioPlugin Cloud type %s is not currently supported for "
@@ -54,16 +55,14 @@ class ZoneOutageScenarioPlugin(AbstractScenarioPlugin):
         
     def node_based_zone(self, scenario_config: dict[str, any]):
         
-        region = scenario_config["region"]
         zone = scenario_config["zone"]
         duration = scenario_config["duration"]
-        cloud_type = scenario_config["cloud_type"]
         label_selector = f"topology.kubernetes.io/zone={zone}"
         # get list of nodes in zone/region
         nodes = common_node_functions.get_node(
                 label_selector, instance_kill_count, kubecli
             )
-
+        logging.info('node list ' + str(nodes))
         NodeActionsScenarioPlugin.multiprocess_nodes(
                 nodes, self.cloud_object, "node_start_scenario", scenario_config
         )

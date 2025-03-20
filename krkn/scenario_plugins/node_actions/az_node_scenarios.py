@@ -150,10 +150,9 @@ class Azure:
             except Exception:
                 logging.info("Vm %s is terminated" % vm_name)
                 end_time = time.time()
-                if affected_node:
-                    affected_node.set_affected_node_status("terminated", end_time - start_time)
-                return True
-
+        if affected_node:
+            affected_node.set_affected_node_status("terminated", end_time - start_time)
+        return True
 
 # krkn_lib
 class azure_node_scenarios(abstract_node_scenarios):
