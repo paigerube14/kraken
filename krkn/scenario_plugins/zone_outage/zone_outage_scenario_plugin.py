@@ -2,13 +2,18 @@ import logging
 import time
 
 import yaml
+
+from multiprocessing.pool import ThreadPool
+from itertools import repeat
+
+from krkn_lib.k8s import KrknKubernetes
 from krkn_lib.models.telemetry import ScenarioTelemetry
 from krkn_lib.telemetry.ocp import KrknTelemetryOpenshift
-from krkn_lib.utils import log_exception
 
-from krkn import utils
+from krkn_lib.utils import get_yaml_item_value
 from krkn.scenario_plugins.abstract_scenario_plugin import AbstractScenarioPlugin
 from krkn.scenario_plugins.native.network import cerberus
+
 from krkn.scenario_plugins.node_actions.node_actions_scenario_plugin import NodeActionsScenarioPlugin
 from krkn.scenario_plugins.node_actions import common_node_functions
 from krkn.scenario_plugins.node_actions.aws_node_scenarios import AWS
@@ -27,25 +32,33 @@ class ZoneOutageScenarioPlugin(AbstractScenarioPlugin):
             with open(scenario, "r") as f:
                 zone_outage_config_yaml = yaml.full_load(f)
                 logging.info('load file')
+                scenario_config = zone_outage_config_yaml["zone_outage"]
+                cloud_type = scenario_config["cloud_type"]
                 if cloud_type.lower() == "aws":
+                    logging.info('cloud')
                     self.cloud_object = AWS()
-                    self.network_based_zone(zone_outage_config_yaml)
-                elif cloud_type.lower() == "gcp":
-                    cloud_object = GCP()
-                    self.node_based_zone(zone_outage_config_yaml)
+                    self.network_based_zone(scenario_config)
                 else:
-                    logging.error(
-                        "ZoneOutageScenarioPlugin Cloud type %s is not currently supported for "
-                        "zone outage scenarios" % cloud_type
-                    )
-                    return 1
+                    kubecli = lib_telemetry.get_lib_kubernetes()
+                    if cloud_type.lower() == "gcp":
+                        logging.info('gcp')
+                        self.cloud_object = NodeActionsScenarioPlugin.get_node_scenario_object(NodeActionsScenarioPlugin, scenario_config, kubecli)
+                        self.node_based_zone(scenario_config, kubecli)
+                        affected_nodes_status = self.cloud_object.affected_nodes_status
+                        scenario_telemetry.affected_nodes.extend(affected_nodes_status.affected_nodes)
+                    else:
+                        logging.error(
+                            "ZoneOutageScenarioPlugin Cloud type %s is not currently supported for "
+                            "zone outage scenarios" % cloud_type
+                        )
+                        return 1
 
                 start_time = int(time.time())
 
                 
                 end_time = int(time.time())
                 cerberus.publish_kraken_status(krkn_config, [], start_time, end_time)
-        except (RuntimeError, Exception):
+        except (RuntimeError, Exception) as e:
             logging.error(
                 f"ZoneOutageScenarioPlugin scenario {scenario} failed with exception: {e}"
             )
@@ -53,19 +66,46 @@ class ZoneOutageScenarioPlugin(AbstractScenarioPlugin):
         else:
             return 0
         
-    def node_based_zone(self, scenario_config: dict[str, any]):
-        
+    def node_based_zone(self, scenario_config: dict[str, any], kubecli: KrknKubernetes ):
+        logging.info('node based zone')
         zone = scenario_config["zone"]
-        duration = scenario_config["duration"]
+        duration = get_yaml_item_value(scenario_config, "duration", 60)
+        timeout = get_yaml_item_value(scenario_config, "timeout", 180)
         label_selector = f"topology.kubernetes.io/zone={zone}"
-        # get list of nodes in zone/region
-        nodes = common_node_functions.get_node(
-                label_selector, instance_kill_count, kubecli
+        logging.info('get node')
+        try: 
+            # get list of nodes in zone/region
+
+            nodes = kubecli.list_killable_nodes(label_selector)
+            logging.info('node list ' + str(nodes))
+
+            # stop nodes in parallel 
+            pool = ThreadPool(processes=len(nodes))
+    
+            pool.starmap(
+                self.cloud_object.node_stop_scenario,zip(repeat(1), nodes, repeat(timeout))
             )
-        logging.info('node list ' + str(nodes))
-        NodeActionsScenarioPlugin.multiprocess_nodes(
-                nodes, self.cloud_object, "node_start_scenario", scenario_config
-        )
+
+            pool.close()
+
+            logging.info(
+                "Waiting for the specified duration " "in the config: %s" % duration
+            )
+            time.sleep(duration)
+
+            # start nodes in parallel 
+            pool = ThreadPool(processes=len(nodes))
+            pool.starmap(
+                self.cloud_object.node_start_scenario,zip(repeat(1), nodes, repeat(timeout))
+            )
+            pool.close()
+        except Exception as e:
+            logging.info(
+                f"Node based zone outage scenario failed with exception: {e}"
+            )
+            return 1
+        else:
+            return 0
 
     def network_based_zone(self, scenario_config: dict[str, any]):
 

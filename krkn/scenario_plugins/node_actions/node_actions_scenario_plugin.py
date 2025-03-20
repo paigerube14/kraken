@@ -165,6 +165,12 @@ class NodeActionsScenarioPlugin(AbstractScenarioPlugin):
 
     def multiprocess_nodes(self, nodes, node_scenario_object, action, node_scenario):
         try:
+            logging.info('multiprocess_nodes nodes ' + str(nodes))
+            logging.info('multiprocess_nodes node_scenario_object ' + str(node_scenario_object))
+            logging.info('multiprocess_nodes action ' + str(action))
+            logging.info('multiprocess_nodes self ' + str(self))
+
+            logging.info('multiprocess_nodes nodes ' + str(node_scenario))
             # pool object with number of element
             pool = ThreadPool(processes=len(nodes))
     

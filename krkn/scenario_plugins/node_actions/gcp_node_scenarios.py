@@ -14,6 +14,9 @@ class GCP:
         try:
             _, self.project_id = google.auth.default()
             self.instance_client = compute_v1.InstancesClient()
+            self.network = compute_v1.Network()
+            self.subnetwork = compute_v1.SubNetworksClient()
+            logging.info('gcp init')
         except Exception as e:
             logging.error("Error on setting up GCP connection: " + str(e))
 
@@ -218,6 +221,84 @@ class GCP:
             affected_node.set_affected_node_status("terminated", end_time - start_time)
         return instance_status
 
+    # Creates a deny network acl and returns the id
+    def create_default_network_acl(self, vpc_id):
+        try:
+            logging.info("Trying to create a default deny network acl")
+            network_interface = self.network.NetworkInterface()
+
+            network_interface.network = network
+            network_interface.subnetwork = subnetwork
+            template.properties.network_interfaces = [network_interface]
+            logging.info("Created a network acl, id=%s" % acl_id)
+        except Exception as e:
+            logging.error(
+                "Failed to create the default network_acl: %s"
+                "Make sure you have aws cli configured on the host and set for the region of your vpc/subnet"
+                % (e)
+            )
+
+            raise RuntimeError()
+        return acl_id
+
+
+    # Replace network acl association
+    def replace_network_acl_association(self, association_id, acl_id):
+        try:
+            logging.info("Replacing the network acl associated with the subnet")
+            self.instance_client.instances.setNetworkInterface()
+            self.instance_client.setNet
+            logging.info(status)
+            new_association_id = status["NewAssociationId"]
+        except Exception as e:
+            logging.error("Failed to replace network acl association: %s" % (e))
+
+            raise RuntimeError()
+        return new_association_id
+    
+
+    def create_subnetwork(self, subnet_name):
+        self.instance_client.serv
+        subnetwork = self.subnetwork(subnet_name, project=self.project_id,
+                zone=self.get_node_instance_zone(instance_id))
+
+    # Describe network acl
+    def describe_network_acls(self, vpc_id, subnet_id):
+        try:
+            response = self.boto_client.describe_network_acls(
+                Filters=[
+                    {"Name": "vpc-id", "Values": [vpc_id]},
+                    {"Name": "association.subnet-id", "Values": [subnet_id]},
+                ]
+            )
+        except Exception as e:
+            logging.error(
+                "Failed to describe network acl: %s."
+                "Make sure you have aws cli configured on the host and set for the region of your vpc/subnet"
+                % (e)
+            )
+
+            raise RuntimeError()
+        associations = response["NetworkAcls"][0]["Associations"]
+        # grab the current network_acl in use
+        original_acl_id = response["NetworkAcls"][0]["Associations"][0]["NetworkAclId"]
+        return associations, original_acl_id
+
+    # Delete network acl
+    def delete_network_acl(self, subnet_id):
+        try:
+            logging.info("Deleting the network acl: %s" % (acl_id))
+            delete_request = compute_v1.DeleteSubnetworkRequest(subnetwork=subnet_id, project=self.project_id,
+                zone=self.get_node_instance_zone(instance_id)
+            self.subnetwork.delete(delete_request)
+        except Exception as e:
+            logging.error(
+                "Failed to delete network_acl %s: %s"
+                "Make sure you have aws cli configured on the host and set for the region of your vpc/subnet"
+                % (acl_id, e)
+            )
+
+            raise RuntimeError()
 
 # krkn_lib
 class gcp_node_scenarios(abstract_node_scenarios):
