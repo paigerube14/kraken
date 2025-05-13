@@ -38,11 +38,11 @@ Enhancements being planned can be found in the [roadmap](ROADMAP.md).
 ### Contributions
 We are always looking for more enhancements, fixes to make it better, any contributions are most welcome. Feel free to report or work on the issues filed on github.
 
-[More information on how to Contribute](https://krkn-chaos.dev/docs/contribution-guidelines/contribute/)
+[More information on how to Contribute](https://krkn-chaos.dev/docs/contribution-guidelines)
 
 
 ### Community
-Key Members(slack_usernames/full name): paigerube14/Paige Rubendall, mffiedler/Mike Fiedler, tsebasti/Tullio Sebastiani, yogi/Yogananth Subramanian, sahil/Sahil Shah, pradeep/Pradeep Surisetty and ravielluri/Naga Ravi Chaitanya Elluri.
+Key Members(slack_usernames/full name): paigerube14/Paige Patton, mffiedler/Mike Fiedler, tsebasti/Tullio Sebastiani, yogi/Yogananth Subramanian, sahil/Sahil Shah, pradeep/Pradeep Surisetty and ravielluri/Naga Ravi Chaitanya Elluri.
 * [**#krkn on Kubernetes Slack**](https://kubernetes.slack.com/messages/C05SFMHRWK1)
 
 The Linux Foundation® (TLF) has registered trademarks and uses trademarks. For a list of TLF trademarks, see [Trademark Usage](https://www.linuxfoundation.org/legal/trademark-usage).
