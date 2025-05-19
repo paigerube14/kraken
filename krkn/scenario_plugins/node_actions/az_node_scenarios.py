@@ -23,6 +23,7 @@ class Azure:
         logger = logging.getLogger("azure")
         logger.setLevel(logging.WARNING)
         subscription_id = os.getenv("AZURE_SUBSCRIPTION_ID")
+        logging.info('subscription id' + str(subscription_id))
         self.compute_client = ComputeManagementClient(credentials, subscription_id,logging=logger)
         self.network_client = NetworkManagementClient(credentials, subscription_id,logging=logger)
 
