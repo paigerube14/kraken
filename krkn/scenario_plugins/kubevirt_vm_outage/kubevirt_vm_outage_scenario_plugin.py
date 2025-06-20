@@ -2,6 +2,7 @@ import logging
 import time
 from typing import Dict, Any, Optional
 
+import regex
 import yaml
 from kubernetes.client.rest import ApiException
 from krkn_lib.k8s import KrknKubernetes
@@ -98,6 +99,39 @@ class KubevirtVmOutageScenarioPlugin(AbstractScenarioPlugin):
             logging.error(f"Unexpected error getting VMI {name}: {e}")
             raise
             
+    def get_vmis(self, regex_name: str, namespace: str) -> Optional[Dict]:
+        """
+        Get a Virtual Machine Instance by name and namespace.
+        
+        :param name: Name of the VMI to retrieve
+        :param namespace: Namespace of the VMI
+        :return: The VMI object if found, None otherwise
+        """
+        try:
+            vmis = self.custom_object_client.list_namespaced_custom_object(
+                group="kubevirt.io",
+                version="v1",
+                namespace=namespace,
+                plural="virtualmachineinstances",
+            )
+
+            vmi_list = []
+            for vmi in vmis:
+                re_name = re.compile(regex_name)
+                re.match(re_name)
+                vmi_list.add(vmi)
+            return vmi_list
+        except ApiException as e:
+            if e.status == 404:
+                logging.warning(f"VMI {name} not found in namespace {namespace}")
+                return None
+            else:
+                logging.error(f"Error getting VMI {name}: {e}")
+                raise
+        except Exception as e:
+            logging.error(f"Unexpected error getting VMI {name}: {e}")
+            raise
+    
     def execute_scenario(self, config: Dict[str, Any], scenario_telemetry: ScenarioTelemetry) -> int:
         """
         Execute a KubeVirt VM outage scenario based on the provided configuration.
@@ -111,13 +145,22 @@ class KubevirtVmOutageScenarioPlugin(AbstractScenarioPlugin):
             vm_name = params.get("vm_name")
             namespace = params.get("namespace", "default")
             timeout = params.get("timeout", 60)
+            kill_count = params.get("kill_count", 1)
+            parallel = params.get("parallel", False)
             disable_auto_restart = params.get("disable_auto_restart", False)
             self.pods_status = PodsStatus()
             self.affected_pod = AffectedPod(
                 pod_name=vm_name,
                 namespace=namespace,
             )
+            self.get_vmis(vm_name)
+            # for killed in kill_count:
 
+            #     if parallel: 
+
+            #         # execute steps in parallel 
+
+            #     else:
             if not vm_name:
                 logging.error("vm_name parameter is required")
                 return 1
