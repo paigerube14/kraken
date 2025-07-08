@@ -1,8 +1,8 @@
 import logging
 import time
 from typing import Dict, Any, Optional
-
-import regex
+import random
+import re
 import yaml
 from kubernetes.client.rest import ApiException
 from krkn_lib.k8s import KrknKubernetes
@@ -112,21 +112,21 @@ class KubevirtVmOutageScenarioPlugin(AbstractScenarioPlugin):
             )
 
             vmi_list = []
-            for vmi in vmis:
-                re_name = re.compile(regex_name)
-                re.match(re_name)
-                vmi_list.add(vmi)
-            print('vmi list' + str(vmi_list))
+            for vmi in vmis.get("items"):
+                vmi_name = vmi.get("metadata",{}).get("name")
+                match = re.match(regex_name, vmi_name)
+                if match:
+                    vmi_list.append(vmi)
             return vmi_list
         except ApiException as e:
             if e.status == 404:
-                logging.warning(f"VMI {name} not found in namespace {namespace}")
+                logging.warning(f"VMI {regex_name} not found in namespace {namespace}")
                 return None
             else:
-                logging.error(f"Error getting VMI {name}: {e}")
+                logging.error(f"Error getting VMI {regex_name}: {e}")
                 raise
         except Exception as e:
-            logging.error(f"Unexpected error getting VMI {name}: {e}")
+            logging.error(f"Unexpected error getting VMI {regex_name}: {e}")
             raise
     
     def execute_scenario(self, config: Dict[str, Any], scenario_telemetry: ScenarioTelemetry) -> int:
@@ -150,17 +150,16 @@ class KubevirtVmOutageScenarioPlugin(AbstractScenarioPlugin):
                 return 1
             vmis_list = self.get_vmis(vm_name,namespace)
             rand_int = random.randint(0, len(vmis_list) - 1)
-
             vmi = vmis_list[rand_int]
                 
             logging.info(f"Starting KubeVirt VM outage scenario for VM: {vm_name} in namespace: {namespace}")
-            
-            if not self.validate_environment(vm_name, namespace):
+            vmi_name = vmi.get("metadata").get("name")
+            if not self.validate_environment(vmi_name, namespace):
                 return 1
                 
-            vmi = self.get_vmi(vm_name, namespace)
+            vmi = self.get_vmi(vmi_name, namespace)
             self.affected_pod = AffectedPod(
-                pod_name=vm_name,
+                pod_name=vmi_name,
                 namespace=namespace,
             )
             if not vmi:
@@ -169,14 +168,14 @@ class KubevirtVmOutageScenarioPlugin(AbstractScenarioPlugin):
                 
             self.original_vmi = vmi
             logging.info(f"Captured initial state of VMI: {vm_name}")
-            result = self.delete_vmi(vm_name, namespace, disable_auto_restart)
+            result = self.delete_vmi(vmi_name, namespace, disable_auto_restart)
             if result != 0:
             
                 return self.pods_status
 
-            result = self.wait_for_running(vm_name,namespace, timeout)
+            result = self.wait_for_running(vmi_name,namespace, timeout)
             if result != 0:
-                self.recover(vm_name, namespace)
+                self.recover(vmi_name, namespace)
                 self.pods_status.unrecovered = self.affected_pod
                 return self.pods_status
             
