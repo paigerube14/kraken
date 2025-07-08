@@ -28,10 +28,6 @@ class KubevirtVmOutageScenarioPlugin(AbstractScenarioPlugin):
     def get_scenario_types(self) -> list[str]:
         return ["kubevirt_vm_outage"]
 
-<<<<<<< HEAD
-
-=======
->>>>>>> d929520 (adding kubevirt with pod timing)
     def run(
         self,
         run_uuid: str,
@@ -120,6 +116,7 @@ class KubevirtVmOutageScenarioPlugin(AbstractScenarioPlugin):
                 re_name = re.compile(regex_name)
                 re.match(re_name)
                 vmi_list.add(vmi)
+            print('vmi list' + str(vmi_list))
             return vmi_list
         except ApiException as e:
             if e.status == 404:
@@ -146,24 +143,15 @@ class KubevirtVmOutageScenarioPlugin(AbstractScenarioPlugin):
             namespace = params.get("namespace", "default")
             timeout = params.get("timeout", 60)
             kill_count = params.get("kill_count", 1)
-            parallel = params.get("parallel", False)
             disable_auto_restart = params.get("disable_auto_restart", False)
             self.pods_status = PodsStatus()
-            self.affected_pod = AffectedPod(
-                pod_name=vm_name,
-                namespace=namespace,
-            )
-            self.get_vmis(vm_name)
-            # for killed in kill_count:
-
-            #     if parallel: 
-
-            #         # execute steps in parallel 
-
-            #     else:
             if not vm_name:
                 logging.error("vm_name parameter is required")
                 return 1
+            vmis_list = self.get_vmis(vm_name,namespace)
+            rand_int = random.randint(0, len(vmis_list) - 1)
+
+            vmi = vmis_list[rand_int]
                 
             logging.info(f"Starting KubeVirt VM outage scenario for VM: {vm_name} in namespace: {namespace}")
             
@@ -171,6 +159,10 @@ class KubevirtVmOutageScenarioPlugin(AbstractScenarioPlugin):
                 return 1
                 
             vmi = self.get_vmi(vm_name, namespace)
+            self.affected_pod = AffectedPod(
+                pod_name=vm_name,
+                namespace=namespace,
+            )
             if not vmi:
                 logging.error(f"VMI {vm_name} not found in namespace {namespace}")
                 return 1
