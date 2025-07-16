@@ -29,6 +29,7 @@ from krkn_lib.utils.functions import get_yaml_item_value, get_junit_test_case
 
 from krkn.utils import TeeLogHandler
 from krkn.utils.HealthChecker import HealthChecker
+from krkn.utils.VirtChecker import VirtChecker
 from krkn.scenario_plugins.scenario_plugin_factory import (
     ScenarioPluginFactory,
     ScenarioPluginNotFound,
@@ -121,7 +122,9 @@ def main(cfg) -> int:
             config["performance_monitoring"], "check_critical_alerts", False
         )
         telemetry_api_url = config["telemetry"].get("api_url")
-        health_check_config = config["health_checks"]
+        health_check_config = get_yaml_item_value(config, "health_checks",{})
+        kubevirt_check_config = get_yaml_item_value(config, "kubevirt_checks", {})
+        kubevirt_check_ns = get_yaml_item_value(kubevirt_check_config, "namespace", "")
 
         # Initialize clients
         if not os.path.isfile(kubeconfig_path) and not os.path.isfile(
@@ -306,6 +309,12 @@ def main(cfg) -> int:
                                                args=(health_check_config, health_check_telemetry_queue))
         health_check_worker.start()
 
+        kubevirt_check_telemetry_queue = queue.Queue()
+        kubevirt_checker = VirtChecker(namespace=kubevirt_check_ns, iterations=iterations, krkn_lib=kubecli)
+        kubevirt_checker_worker = threading.Thread(target=kubevirt_checker.run_virt_check,
+                                               args=(kubevirt_check_config, kubevirt_check_telemetry_queue))
+        kubevirt_checker_worker.start()
+
         # Loop to run the chaos starts here
         while int(iteration) < iterations and run_signal != "STOP":
             # Inject chaos scenarios specified in the config
@@ -373,6 +382,12 @@ def main(cfg) -> int:
         # is disabled, it's necessary to serialize the ChaosRunTelemetry object
         # to json, and recreate a new object from it.
         end_time = int(time.time())
+        health_check_worker.join()
+        try:
+            chaos_telemetry.health_checks = health_check_telemetry_queue.get_nowait()
+        except queue.Empty:
+            chaos_telemetry.health_checks = None
+
         health_check_worker.join()
         try:
             chaos_telemetry.health_checks = health_check_telemetry_queue.get_nowait()
