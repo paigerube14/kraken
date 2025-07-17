@@ -15,12 +15,18 @@ class VirtChecker:
         self.iterations = iterations
         self.namespace = namespace
         self.krkn_lib = krkn_lib
-        self.kube_vm_plugin = KubevirtVmOutageScenarioPlugin.init_clients(k8s_client=krkn_lib)
-        vmis = self.kube_vm_plugin.get_vmis("^.$",self.namespace)
+        
+        try:
+            self.kube_vm_plugin = KubevirtVmOutageScenarioPlugin()
+            self.kube_vm_plugin.init_clients(k8s_client=krkn_lib)
+        
+        except Exception as e:
+            print('exception' + str(e))
+        print('namespace ' + str(self.namespace))
+        vmis = self.kube_vm_plugin.get_vmis(".*",self.namespace)
         self.threads_limit = threads_limt
-        print('vmi ' + str(vmis))
         self.vm_list = []
-        for vmi in vmis.get("items"):
+        for vmi in vmis:
             node_name = vmi.get("status",{}).get("nodeName")
             vmi_name = vmi.get("metadata",{}).get("name")
             #self.expose_vm(vmi_name)
@@ -31,7 +37,7 @@ class VirtChecker:
         The method expose vm
         @param vm_name:
         """
-        invoke(f'virtctl expose vm {vm_name} --name {vm_name} {self.namespace} --port 27022 --target-port 22 --type NodePort')
+        invoke(f'virtctl expose vmi {vm_name} --name {vm_name} -n {self.namespace} --port 27022 --target-port 22 --type NodePort')
         logging.info(f'Exposed {vm_name} in {self.namespace} to port 27022')
     
     def _wait_ssh_vm(self, vm_name: str, vm_node:str):
@@ -116,7 +122,7 @@ class VirtChecker:
             return invoke(virtctl_vm_cmd)
     
     def run_virt_check(self, virt_check_config, virt_check_telemetry_queue: queue.Queue):
-        response_tracker = {vm['vm_name']:True for vm in self.vm_list}
+        response_tracker = {vm.vm_name:True for vm in self.vm_list}
         for vm in self.vm_list:
             virt_check_telemetry = []
             virt_check_tracker = {}
@@ -124,13 +130,13 @@ class VirtChecker:
             
             while self.current_iterations < self.iterations:
                 try: 
-                    vm_status = self.get_vm_access(vm['name'], vm['namespace'])
+                    vm_status = self.get_vm_access(vm.vm_name, vm.namespace)
                     print('vm status' + str(vm_status))
                 except Exception:
                     response = {}
                     vm_status = False
                 
-                if vm['vm_name'] not in virt_check_tracker:
+                if vm.vm_name not in virt_check_tracker:
                     start_timestamp = datetime.now()
                     virt_check_tracker[vm['vm_name']] = {
                         "status": vm_status,
@@ -168,7 +174,5 @@ class VirtChecker:
                     "duration": duration
                 }
                 virt_check_telemetry.append(VirtCheck(success_response))
-
-            virt_check_telemetry_queue.put(virt_check_telemetry)
-        else:
-            logging.info("virt checks config is not defined, skipping them")
+        print('virt check telem ' + str(virt_check_telemetry))
+        virt_check_telemetry_queue.put(virt_check_telemetry)
