@@ -20,6 +20,7 @@ RUN make GO_REQUIRED_MIN_VERSION:= oc
 FROM fedora:40
 ARG PR_NUMBER
 ARG TAG
+ARG LOCAL_BUILD
 RUN groupadd -g 1001 krkn && useradd -m -u 1001 -g krkn krkn
 RUN dnf update -y
 
@@ -40,16 +41,30 @@ RUN export VERSION=$(curl https://storage.googleapis.com/kubevirt-prow/release/k
 COPY --from=oc-build /tmp/oc/oc /usr/bin/oc
 
 # krkn build
-RUN git clone https://github.com/krkn-chaos/krkn.git /home/krkn/kraken && \
-    mkdir -p /home/krkn/.kube
+# If LOCAL_BUILD is set, copy local files; otherwise clone from GitHub
+RUN if [ "$LOCAL_BUILD" = "true" ]; then \
+        echo "Using local build - files will be copied"; \
+    else \
+        echo "Cloning from GitHub..." && \
+        git clone https://github.com/krkn-chaos/krkn.git /home/krkn/kraken; \
+    fi
+
+RUN mkdir -p /home/krkn/.kube
+
+# Copy local files when LOCAL_BUILD is true
+COPY --chown=krkn:krkn ../ /home/krkn/kraken/
 
 WORKDIR /home/krkn/kraken
 
 # default behaviour will be to build main
 # if it is a PR trigger the PR itself will be checked out
-RUN if [ -n "$PR_NUMBER" ]; then git fetch origin pull/${PR_NUMBER}/head:pr-${PR_NUMBER} && git checkout pr-${PR_NUMBER};fi
+RUN if [ -n "$PR_NUMBER" ] && [ "$LOCAL_BUILD" != "true" ]; then \
+        git fetch origin pull/${PR_NUMBER}/head:pr-${PR_NUMBER} && git checkout pr-${PR_NUMBER}; \
+    fi
 # if it is a TAG trigger checkout the tag
-RUN if [ -n "$TAG" ]; then git checkout "$TAG";fi
+RUN if [ -n "$TAG" ] && [ "$LOCAL_BUILD" != "true" ]; then \
+        git checkout "$TAG"; \
+    fi
 
 RUN python3.9 -m ensurepip --upgrade --default-pip
 RUN python3.9 -m pip install --upgrade pip setuptools==78.1.1
