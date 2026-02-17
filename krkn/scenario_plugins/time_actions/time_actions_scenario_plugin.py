@@ -6,6 +6,7 @@ import time
 
 import yaml
 from krkn_lib.k8s import KrknKubernetes
+from krkn_lib.models.k8s import AffectedNode, AffectedPod, PodsStatus
 from krkn_lib.models.telemetry import ScenarioTelemetry
 from krkn_lib.telemetry.ocp import KrknTelemetryOpenshift
 from krkn_lib.utils import get_random_string, get_yaml_item_value, log_exception
@@ -32,13 +33,35 @@ class TimeActionsScenarioPlugin(AbstractScenarioPlugin):
                     object_type, object_names = self.skew_time(
                         time_scenario, lib_telemetry.get_lib_kubernetes()
                     )
-                    not_reset = self.check_date_time(
+                    not_reset, recovery_data = self.check_date_time(
                         object_type,
                         object_names,
                         lib_telemetry.get_lib_kubernetes(),
                     )
                     if len(not_reset) > 0:
                         logging.info("Object times were not reset")
+
+                    # Populate telemetry with recovery metrics
+                    if object_type == "pod":
+                        pods_status = PodsStatus()
+                        for pod_data in recovery_data["recovered"]:
+                            pods_status.recovered.append(pod_data)
+                        for pod_name in not_reset:
+                            # Find namespace for unrecovered pod
+                            namespace = next(
+                                (obj[1] for obj in object_names if obj[0] == pod_name),
+                                "unknown"
+                            )
+                            pods_status.unrecovered.append(
+                                AffectedPod(pod_name, namespace)
+                            )
+                        scenario_telemetry.affected_pods = pods_status
+                    elif object_type == "node":
+                        affected_nodes = []
+                        for node_data in recovery_data["recovered"]:
+                            affected_nodes.append(node_data)
+                        scenario_telemetry.affected_nodes = affected_nodes
+
                     end_time = int(time.time())
                     cerberus.publish_kraken_status(
                         krkn_config, not_reset, start_time, end_time
@@ -292,9 +315,11 @@ class TimeActionsScenarioPlugin(AbstractScenarioPlugin):
     def check_date_time(self, object_type, names, kubecli: KrknKubernetes):
         skew_command = "date"
         not_reset = []
+        recovery_data = {"recovered": []}
         max_retries = 30
         if object_type == "node":
             for node_name in names:
+                recovery_start_time = time.time()
                 first_date_time = datetime.datetime.utcnow()
                 check_pod_name = f"time-skew-pod-{get_random_string(5)}"
                 node_datetime_string = kubecli.exec_command_on_node(
@@ -323,11 +348,22 @@ class TimeActionsScenarioPlugin(AbstractScenarioPlugin):
                         not_reset.append(node_name)
                         break
                 if counter < max_retries:
-                    logging.info("Date in node " + str(node_name) + " reset properly")
+                    recovery_time = time.time() - recovery_start_time
+                    logging.info(
+                        f"Date in node {node_name} reset properly after {recovery_time:.2f} seconds"
+                    )
+                    # Create AffectedNode with recovery time
+                    affected_node = AffectedNode(
+                        node_name=node_name,
+                        node_id=node_name,
+                        ready_time=recovery_time
+                    )
+                    recovery_data["recovered"].append(affected_node)
                 kubecli.delete_pod(check_pod_name)
 
         elif object_type == "pod":
             for pod_name in names:
+                recovery_start_time = time.time()
                 first_date_time = datetime.datetime.utcnow()
                 counter = 0
                 pod_datetime_string = self.pod_exec(
@@ -353,8 +389,18 @@ class TimeActionsScenarioPlugin(AbstractScenarioPlugin):
                         not_reset.append(pod_name[0])
                         break
                 if counter < max_retries:
-                    logging.info("Date in pod " + str(pod_name[0]) + " reset properly")
-        return not_reset
+                    recovery_time = time.time() - recovery_start_time
+                    logging.info(
+                        f"Date in pod {pod_name[0]} reset properly after {recovery_time:.2f} seconds"
+                    )
+                    # Create AffectedPod with recovery time
+                    affected_pod = AffectedPod(
+                        pod_name=pod_name[0],
+                        namespace=pod_name[1],
+                        total_recovery_time=recovery_time
+                    )
+                    recovery_data["recovered"].append(affected_pod)
+        return not_reset, recovery_data
 
     def get_scenario_types(self) -> list[str]:
         return ["time_scenarios"]
