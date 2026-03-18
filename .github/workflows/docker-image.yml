@@ -10,46 +10,140 @@ jobs:
     steps:
     - name: Check out code
       uses: actions/checkout@v3
-    - name: Build the Docker images
-      if: startsWith(github.ref, 'refs/tags')
-      run:  |
-        ./containers/compile_dockerfile.sh
-        docker build --no-cache -t quay.io/krkn-chaos/krkn containers/ --build-arg TAG=${GITHUB_REF#refs/tags/}
-        docker tag quay.io/krkn-chaos/krkn quay.io/redhat-chaos/krkn
-        docker tag quay.io/krkn-chaos/krkn quay.io/krkn-chaos/krkn:${GITHUB_REF#refs/tags/}
-        docker tag quay.io/krkn-chaos/krkn quay.io/redhat-chaos/krkn:${GITHUB_REF#refs/tags/}
 
     - name: Test Build the Docker images
       if: ${{ github.event_name == 'pull_request' }}
       run: |
         ./containers/compile_dockerfile.sh
         docker build --no-cache -t quay.io/krkn-chaos/krkn containers/ --build-arg PR_NUMBER=${{ github.event.pull_request.number }}
-    - name: Login in quay
-      if: startsWith(github.ref, 'refs/tags')
-      run: docker login quay.io -u ${QUAY_USER} -p ${QUAY_TOKEN}
-      env:
-        QUAY_USER: ${{ secrets.QUAY_USERNAME }}
-        QUAY_TOKEN: ${{ secrets.QUAY_PASSWORD }}
-    - name: Push the KrknChaos Docker images
-      if: startsWith(github.ref, 'refs/tags')
-      run: |
-        docker push quay.io/krkn-chaos/krkn
-        docker push quay.io/krkn-chaos/krkn:${GITHUB_REF#refs/tags/}
-    - name: Login in to redhat-chaos quay
-      if: startsWith(github.ref, 'refs/tags/v')
-      run: docker login quay.io -u ${QUAY_USER} -p ${QUAY_TOKEN}
-      env:
-        QUAY_USER: ${{ secrets.QUAY_USER_1 }}
-        QUAY_TOKEN: ${{ secrets.QUAY_TOKEN_1 }}
-    - name: Push the RedHat Chaos Docker images
-      if: startsWith(github.ref, 'refs/tags')
-      run: | 
-        docker push quay.io/redhat-chaos/krkn
-        docker push quay.io/redhat-chaos/krkn:${GITHUB_REF#refs/tags/}
-    - name: Rebuild krkn-hub
-      if: startsWith(github.ref, 'refs/tags')
-      uses: redhat-chaos/actions/krkn-hub@main
-      with:
-        QUAY_USER: ${{ secrets.QUAY_USERNAME }}
-        QUAY_TOKEN: ${{ secrets.QUAY_PASSWORD }}
-        AUTOPUSH: ${{ secrets.AUTOPUSH }}
+  
+  build-krkn-amd64:
+    name: Build krkn (linux/amd64)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Quay.io
+        if: startsWith(github.ref, 'refs/tags')
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Set version from tag
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: Build krkn (amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          tags: quay.io/krkn-chaos/krkn:${GITHUB_REF#refs/tags/}-amd64
+          cache-from: type=gha,scope=krkn-amd64
+          cache-to: type=gha,mode=max,scope=krkn-amd64
+      - name: Push Krkn 
+        if: startsWith(github.ref, 'refs/tags')
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: quay.io/krkn-chaos/krkn:${GITHUB_REF#refs/tags/}-amd64
+          cache-from: type=gha,scope=krkn-amd64
+          cache-to: type=gha,mode=max,scope=krkn-amd64
+  build-krkn-arm64:
+    name: Build krkn (linux/arm64)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Quay.io
+        uses: docker/login-action@v3
+        if: startsWith(github.ref, 'refs/tags')
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Set version from tag
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: Build and push krkn (arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          push: false
+          tags: quay.io/krkn-chaos/krkn:${GITHUB_REF#refs/tags/}-arm64
+          cache-from: type=gha,scope=krkn-arm64
+          cache-to: type=gha,mode=max,scope=krkn-arm64
+      - name: Push krkn (arm64)
+        uses: docker/build-push-action@v6
+        if: startsWith(github.ref, 'refs/tags')
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: quay.io/krkn-chaos/krkn:${GITHUB_REF#refs/tags/}-arm64
+          cache-from: type=gha,scope=krkn-arm64
+          cache-to: type=gha,mode=max,scope=krkn-arm64
+  create-manifests:
+    name: Create Multi-Arch Manifests and Release
+    if: startsWith(github.ref, 'refs/tags')
+    needs:
+      - build-krkn-amd64
+      - build-krkn-arm64
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Quay.io
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Set version from tag
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: Create krkn multi-arch manifest
+        run: |
+          echo "Creating krkn manifest for version $VERSION..."
+
+          # Create versioned tag
+          docker buildx imagetools create -t quay.io/krkn-chaos/krkn:$VERSION \
+            quay.io/krkn-chaos/krkn:$VERSION-amd64 \
+            quay.io/krkn-chaos/krkn:$VERSION-arm64
+
+          # Create latest tag
+          docker buildx imagetools create -t quay.io/krkn-chaos/krkn:latest \
+            quay.io/krkn-chaos/krkn:$VERSION-amd64 \
+            quay.io/krkn-chaos/krkn:$VERSION-arm64
+
+          echo "Krkn manifest created successfully"
+
+      - name: Verify multi-arch manifests
+        run: |
+          echo "Verifying krkn manifest..."
+          docker buildx imagetools inspect quay.io/krkn-chaos/krkn$VERSION
