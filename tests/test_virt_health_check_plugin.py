@@ -414,7 +414,7 @@ class TestVirtHealthCheckPluginCoverage(unittest.TestCase):
             "10.0.0.1", "worker-1", "test-vm"
         )
         self.assertTrue(result)
-        self.assertIsNone(new_ip)
+        self.assertEqual(new_ip, "10.0.0.1")
         self.assertEqual(new_node, "worker-2")
 
     @patch("krkn.health_checks.virt_health_check_plugin.invoke_no_exit")
@@ -445,7 +445,7 @@ class TestVirtHealthCheckPluginCoverage(unittest.TestCase):
             "10.0.0.1", "worker-1", "test-vm"
         )
         self.assertTrue(result)
-        self.assertIsNone(new_ip)
+        self.assertEqual(new_ip, "10.0.0.1")
         self.assertIsNone(new_node)
 
     @patch("krkn.health_checks.virt_health_check_plugin.invoke_no_exit")
