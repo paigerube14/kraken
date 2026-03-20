@@ -71,6 +71,17 @@ class HealthCheckFactory:
         for plugin in self.active_plugins:
             plugin.increment_iterations()
 
+    def stop_all(self) -> None:
+        """
+        Signals all active plugin instances to stop their health check loops.
+        Call this before joining worker threads when the main loop exits early
+        (e.g. on a STOP signal, critical alert, or daemon mode with iterations=inf).
+
+        :return: None
+        """
+        for plugin in self.active_plugins:
+            plugin.stop()
+
     def __load_plugins(self, base_class: Type):
         """
         Loads all plugins that inherit from the base class.

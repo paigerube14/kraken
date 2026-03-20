@@ -269,8 +269,8 @@ class TestHttpHealthCheckPlugin(unittest.TestCase):
         self.plugin.iterations = 1
         self.plugin.run_health_check(config, self.health_check_queue)
 
-        # ret_value should be set to 2 on failure
-        self.assertEqual(self.plugin.get_return_value(), 2)
+        # ret_value should be set to 3 on health check failure
+        self.assertEqual(self.plugin.get_return_value(), 3)
 
     @patch('krkn.health_checks.http_health_check_plugin.HttpHealthCheckPlugin.make_request')
     @patch('time.sleep')

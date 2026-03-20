@@ -749,7 +749,7 @@ class TestVirtHealthCheckPluginCoverage(unittest.TestCase):
 
         # Simulate existing telemetry with failures
         self.plugin.gather_post_virt_checks([MagicMock()])
-        self.assertEqual(self.plugin.get_return_value(), 2)
+        self.assertEqual(self.plugin.get_return_value(), 3)
 
     def test_gather_post_virt_checks_no_failures_no_exit(self):
         """Test gather_post_virt_checks does not set ret_value when no failures"""

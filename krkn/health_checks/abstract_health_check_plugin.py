@@ -1,5 +1,6 @@
 import logging
 import queue
+import threading
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -22,6 +23,17 @@ class AbstractHealthCheckPlugin(ABC):
         """
         self.health_check_type = health_check_type
         self.ret_value = 0  # 0 = success, non-zero = failure
+        self._stop_event = threading.Event()
+
+    def stop(self) -> None:
+        """
+        Signals the plugin to stop its health check loop. Unblocks any join()
+        waiting on a worker thread when the main loop exits early (e.g. on a
+        STOP signal, critical alert, or daemon mode with iterations=inf).
+
+        :return: None
+        """
+        self._stop_event.set()
 
     @abstractmethod
     def run_health_check(

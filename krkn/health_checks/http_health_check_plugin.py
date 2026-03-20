@@ -129,7 +129,7 @@ class HttpHealthCheckPlugin(AbstractHealthCheckPlugin):
             cfg["url"]: True for cfg in config["config"] if cfg.get("url")
         }
 
-        while self.current_iterations < self.iterations:
+        while self.current_iterations < self.iterations and not self._stop_event.is_set():
             for check_config in config.get("config", []):
                 auth, headers = None, None
                 verify_url = check_config.get("verify_url", True)
@@ -172,7 +172,7 @@ class HttpHealthCheckPlugin(AbstractHealthCheckPlugin):
                             check_config.get("exit_on_failure", False)
                             and self.ret_value == 0
                         ):
-                            self.ret_value = 2
+                            self.ret_value = 3
                 else:
                     # Check if status changed
                     if (

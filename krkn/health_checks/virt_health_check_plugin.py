@@ -300,7 +300,7 @@ class VirtHealthCheckPlugin(AbstractHealthCheckPlugin):
             # Thread-safe read of current_iterations
             with self.iteration_lock:
                 current = self.current_iterations
-            if current >= self.iterations:
+            if current >= self.iterations or self._stop_event.is_set():
                 break
 
             for vm in vm_list_batch:
@@ -424,7 +424,7 @@ class VirtHealthCheckPlugin(AbstractHealthCheckPlugin):
                     kubevirt_check_telem.extend(post_kubevirt_check_queue.get_nowait())
 
         if self.exit_on_failure and len(kubevirt_check_telem) > 0:
-            self.ret_value = 2
+            self.ret_value = 3
 
         return kubevirt_check_telem
 

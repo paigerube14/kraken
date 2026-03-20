@@ -489,6 +489,9 @@ def main(options, command: Optional[str]) -> int:
         # to json, and recreate a new object from it.
         end_time = int(time.time())
 
+        # Signal all health check plugins to stop (handles early exit due to STOP/alerts/daemon mode)
+        health_check_factory.stop_all()
+
         # Collect health check telemetry
         if health_check_worker:
             health_check_worker.join()
