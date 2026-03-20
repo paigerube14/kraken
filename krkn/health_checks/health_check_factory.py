@@ -22,6 +22,7 @@ class HealthCheckFactory:
     loaded_plugins: dict[str, Any] = {}
     failed_plugins: list[Tuple[str, str, str]] = []
     package_name = None
+    active_plugins: list = []
 
     def __init__(self, package_name: str = "krkn.health_checks"):
         """
@@ -30,6 +31,7 @@ class HealthCheckFactory:
         :param package_name: the package to scan for health check plugins
         """
         self.package_name = package_name
+        self.active_plugins = []
         self.__load_plugins(AbstractHealthCheckPlugin)
 
     def create_plugin(
@@ -49,14 +51,25 @@ class HealthCheckFactory:
             inherits from the AbstractHealthCheckPlugin abstract class
         """
         if health_check_type in self.loaded_plugins:
-            return self.loaded_plugins[health_check_type](
+            plugin = self.loaded_plugins[health_check_type](
                 health_check_type, iterations=iterations, **kwargs
             )
+            self.active_plugins.append(plugin)
+            return plugin
         else:
             raise HealthCheckPluginNotFound(
                 f"Failed to load the {health_check_type} health check plugin. "
                 f"Please verify the logs to ensure it was loaded correctly."
             )
+
+    def increment_all_iterations(self) -> None:
+        """
+        Increments the iteration counter on all active plugin instances created by this factory.
+
+        :return: None
+        """
+        for plugin in self.active_plugins:
+            plugin.increment_iterations()
 
     def __load_plugins(self, base_class: Type):
         """

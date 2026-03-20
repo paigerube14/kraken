@@ -482,10 +482,7 @@ def main(options, command: Optional[str]) -> int:
                                 break
 
             iteration += 1
-            if health_checker:
-                health_checker.increment_iterations()
-            if kubevirt_checker:
-                kubevirt_checker.increment_iterations()
+            health_check_factory.increment_all_iterations()
         # telemetry
         # in order to print decoded telemetry data even if telemetry collection
         # is disabled, it's necessary to serialize the ChaosRunTelemetry object
