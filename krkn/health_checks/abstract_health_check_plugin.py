@@ -77,6 +77,22 @@ class AbstractHealthCheckPlugin(ABC):
         """
         pass
 
+    @abstractmethod
+    def get_config_key(self) -> str:
+        """
+        Returns the top-level key this plugin reads from config.yaml. The factory uses
+        this to map each config section to its plugin automatically, so that new plugins
+        can define their own config section without modifying run_kraken.py.
+
+        The key must be unique across all plugins.
+
+        Example: an HTTP health check plugin might return ``"health_checks"``, meaning
+        it will be configured under ``health_checks:`` in config.yaml.
+
+        :return: the top-level config.yaml key for this plugin
+        """
+        pass
+
     def get_return_value(self) -> int:
         """
         Returns the current return value indicating success or failure.

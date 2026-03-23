@@ -76,12 +76,23 @@ class MyHealthCheckPlugin(AbstractHealthCheckPlugin):
 
     def get_health_check_types(self) -> list[str]:
         """
-        Return the health check types this plugin handles.
-        One plugin can handle multiple types.
+        Return the internal type identifiers this plugin handles.
+        One plugin can handle multiple types; all must be unique across plugins.
 
         :return: list of health check type identifiers
         """
         return ["my_health_check", "my_custom_check"]
+
+    def get_config_key(self) -> str:
+        """
+        Return the top-level config.yaml key this plugin reads from.
+        The factory maps this key to the plugin automatically so run_kraken.py
+        discovers and starts it without any manual registration.
+        Must be unique across all plugins.
+
+        :return: config key string
+        """
+        return "my_health_checks"
 
     def increment_iterations(self) -> None:
         """
@@ -106,13 +117,13 @@ class MyHealthCheckPlugin(AbstractHealthCheckPlugin):
         :param telemetry_queue: queue to put telemetry data
         :return: None
         """
-        while self.current_iterations < self.iterations:
+        while self.current_iterations < self.iterations and not self._stop_event.is_set():
             # Perform health check logic here
             logging.info("Running health check...")
 
-            # If health check fails, set return value
+            # If health check fails, set return value (3 = health check failure)
             if some_failure_condition:
-                self.set_return_value(2)
+                self.set_return_value(3)
 
             # Sleep between checks
             time.sleep(config.get("interval", 5))
@@ -131,8 +142,10 @@ from krkn.health_checks import HealthCheckFactory, HealthCheckPluginNotFound
 # Create factory instance (auto-discovers all plugins)
 factory = HealthCheckFactory()
 
-# List all loaded plugins
+# List all loaded plugins and their config keys
 print(f"Available plugins: {list(factory.loaded_plugins.keys())}")
+print(f"Config key map: {factory.config_key_map}")
+# e.g. {'health_checks': 'http_health_check', 'kubevirt_checks': 'virt_health_check'}
 
 # List any failed plugins
 for module, cls, error in factory.failed_plugins:
@@ -150,44 +163,38 @@ except HealthCheckPluginNotFound as e:
 
 ### Integration with Main Run Loop
 
+The factory drives the entire lifecycle. Each plugin declares its own config key via `get_config_key()`, and `run_kraken.py` discovers and starts all plugins automatically by iterating over `factory.config_key_map`:
+
 ```python
 import queue
-import threading
 
-# Create plugin
 factory = HealthCheckFactory()
-plugin = factory.create_plugin("http_health_check", iterations=iterations)
 
-# Create telemetry queue
-telemetry_queue = queue.Queue()
-
-# Start health check in background thread
-health_check_thread = threading.Thread(
-    target=plugin.run_health_check,
-    args=(health_check_config, telemetry_queue)
-)
-health_check_thread.start()
+# Start all generic (non-virt) plugins discovered from config
+generic_checkers = []  # list of (plugin, thread, telemetry_queue)
+for config_key, plugin_type in factory.config_key_map.items():
+    plugin_config = config.get(config_key)
+    if not plugin_config:
+        continue
+    plugin = factory.create_plugin(plugin_type, iterations=iterations)
+    tq = queue.Queue()
+    worker = threading.Thread(target=plugin.run_health_check, args=(plugin_config, tq))
+    worker.start()
+    generic_checkers.append((plugin, worker, tq))
 
 # Run chaos scenarios
 for iteration in range(iterations):
     # Run chaos scenario...
+    factory.increment_all_iterations()  # advances all active plugins at once
 
-    # Increment health check iteration counter
-    plugin.increment_iterations()
+# Signal all plugins to stop (handles early exit / daemon mode)
+factory.stop_all()
 
-# Wait for health check thread to complete
-health_check_thread.join()
-
-# Retrieve telemetry
-try:
-    telemetry_data = telemetry_queue.get_nowait()
-except queue.Empty:
-    telemetry_data = None
-
-# Check if health check failed
-if plugin.get_return_value() != 0:
-    logging.error("Health check failed")
-    sys.exit(plugin.get_return_value())
+# Collect telemetry and check results
+for plugin, worker, tq in generic_checkers:
+    worker.join()
+    if plugin.get_return_value() != 0:
+        logging.error("Health check failed")
 ```
 
 ## Plugin Threading Models
@@ -224,40 +231,63 @@ Calling `batch_list()` directly will fail because `vm_list` and `batch_size` are
 
 ## Configuration Format
 
-Health check configuration in `config.yaml`:
+Each plugin owns a top-level config key, declared via `get_config_key()`. Multiple plugins can be active simultaneously — just add their sections to `config.yaml`:
 
 ```yaml
+# Read by HttpHealthCheckPlugin (get_config_key() returns "health_checks")
 health_checks:
-  type: http_health_check    # Must match plugin's get_health_check_types()
-  interval: 2                # Plugin-specific configuration
+  interval: 2
   config:
     - url: "http://example.com/health"
       bearer_token: "optional-token"
       auth: "username,password"  # Optional basic auth
       verify_url: true           # Optional SSL verification
       exit_on_failure: false     # Optional exit behavior
+
+# Read by VirtHealthCheckPlugin (get_config_key() returns "kubevirt_checks")
+kubevirt_checks:
+  interval: 5
+  namespace: "my-namespace"
+  exit_on_failure: false
+
+# Read by a custom plugin (get_config_key() returns "my_service_checks")
+my_service_checks:
+  interval: 10
+  config:
+    endpoint: "http://my-service:8080"
 ```
+
+No `type:` field is needed — the factory maps each section to its plugin automatically.
 
 ## Abstract Base Class API
 
 ### Required Methods
 
 #### `get_health_check_types() -> list[str]`
-Returns the health check type identifiers this plugin handles.
+Returns the internal type identifiers this plugin handles. Must be unique across all plugins.
+
+#### `get_config_key() -> str`
+Returns the top-level `config.yaml` key this plugin reads from. The factory uses this to build `config_key_map` and `run_kraken.py` uses that map to start plugins automatically. Must be unique across all plugins.
 
 #### `run_health_check(config: dict, telemetry_queue: queue.Queue) -> None`
-Main health check logic. Runs until `current_iterations >= iterations`.
+Main health check logic. Check `self._stop_event.is_set()` alongside `current_iterations >= iterations` as the loop condition to support cooperative shutdown.
 
 #### `increment_iterations() -> None`
-Called by main loop after each chaos iteration to keep health check synchronized.
+Called by `factory.increment_all_iterations()` after each chaos iteration to keep health check synchronized.
 
-### Inherited Methods
+### Inherited Members
+
+#### `self._stop_event` (`threading.Event`)
+Set by `stop()` when the main loop exits early. Check `self._stop_event.is_set()` in your loop condition.
 
 #### `get_return_value() -> int`
-Returns 0 for success, non-zero for failure.
+Returns 0 for success, `3` for health check failure, `2` for critical alert.
 
 #### `set_return_value(value: int) -> None`
-Sets return value (0 = success, non-zero = failure).
+Sets return value (`0` = success, `3` = health check failure).
+
+#### `stop() -> None`
+Called by `factory.stop_all()` to signal the plugin to exit its loop. Do not override — check `_stop_event` in your loop instead.
 
 ## Testing Your Plugin
 
@@ -286,45 +316,38 @@ class TestMyHealthCheckPlugin(unittest.TestCase):
 
 ## Using Health Check Plugins
 
-The plugin-based architecture is the standard way to use health checks in krkn:
+Use `factory.config_key_map` to discover and start all configured plugins generically. This means adding a new plugin to `krkn/health_checks/` and a matching section to `config.yaml` is all that's needed — no changes to `run_kraken.py`:
 
 ```python
 from krkn.health_checks import HealthCheckFactory
 import threading
 import queue
 
-# Create factory instance
 factory = HealthCheckFactory()
 
-# Create health check plugin
-health_checker = factory.create_plugin(
-    health_check_type="http_health_check",
-    iterations=5
-)
+# Verify what was discovered
+print(factory.config_key_map)
+# e.g. {'health_checks': 'http_health_check', 'my_service_checks': 'my_service_health_check'}
 
-# Create telemetry queue
-health_check_telemetry_queue = queue.Queue()
+# Start all generic plugins found in config
+generic_checkers = []
+for config_key, plugin_type in factory.config_key_map.items():
+    plugin_config = config.get(config_key)
+    if not plugin_config:
+        continue
+    plugin = factory.create_plugin(plugin_type, iterations=iterations)
+    tq = queue.Queue()
+    worker = threading.Thread(target=plugin.run_health_check, args=(plugin_config, tq))
+    worker.start()
+    generic_checkers.append((plugin, worker, tq))
 
-# Run in background thread
-health_check_worker = threading.Thread(
-    target=health_checker.run_health_check,
-    args=(health_check_config, health_check_telemetry_queue)
-)
-health_check_worker.start()
+# After all chaos iterations complete
+factory.stop_all()
 
-# In main loop
-for iteration in range(iterations):
-    # Run chaos scenarios...
-
-    # Increment health check iteration
-    health_checker.increment_iterations()
-
-# Wait for completion
-health_check_worker.join()
-
-# Check results
-if health_checker.get_return_value() != 0:
-    logging.error("Health check failed")
+for plugin, worker, tq in generic_checkers:
+    worker.join()
+    if plugin.get_return_value() != 0:
+        logging.error("Health check failed")
 ```
 
 ## Benefits of Plugin Architecture
@@ -355,9 +378,9 @@ Common issues:
 - Missing dependencies (will show in error message)
 - Import errors
 
-### Duplicate Health Check Types
+### Duplicate Health Check Types or Config Keys
 
-If two plugins return the same health check type from `get_health_check_types()`, the second one will fail to load with a duplicate error.
+If two plugins return the same health check type from `get_health_check_types()`, or the same key from `get_config_key()`, the second one will fail to load with a duplicate error. Both appear in `factory.failed_plugins`.
 
 ## Examples
 
@@ -370,12 +393,14 @@ See the following implementations for reference:
 
 ### HTTP Health Check Plugin
 - **Types:** `http_health_check`
+- **Config key:** `health_checks`
 - **Purpose:** Monitor HTTP/HTTPS endpoints
 - **Features:** Basic auth, bearer tokens, SSL verification, failure detection
-- **Threading:** Runs continuously in a background thread
+- **Threading:** Runs continuously in an external background thread
 
 ### Virt Health Check Plugin
 - **Types:** `virt_health_check`, `kubevirt_health_check`, `vm_health_check`
+- **Config key:** `kubevirt_checks`
 - **Purpose:** Monitor KubeVirt virtual machine accessibility
 - **Features:** virtctl access checks, disconnected SSH checks, VM migration tracking, batch processing
-- **Threading:** Spawns worker threads internally (no wrapper thread needed)
+- **Threading:** Spawns worker threads internally; has a special post-chaos `gather_post_virt_checks()` step

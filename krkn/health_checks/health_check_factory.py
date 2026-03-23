@@ -21,6 +21,7 @@ class HealthCheckFactory:
 
     loaded_plugins: dict[str, Any] = {}
     failed_plugins: list[Tuple[str, str, str]] = []
+    config_key_map: dict[str, str] = {}
     package_name = None
     active_plugins: list = []
 
@@ -32,6 +33,7 @@ class HealthCheckFactory:
         """
         self.package_name = package_name
         self.active_plugins = []
+        self.config_key_map = {}
         self.__load_plugins(AbstractHealthCheckPlugin)
 
     def create_plugin(
@@ -145,6 +147,21 @@ class HealthCheckFactory:
                             continue
                         for health_check_type in health_check_types:
                             self.loaded_plugins[health_check_type] = cls
+
+                        # Register the config key → primary health check type mapping
+                        config_key = instance.get_config_key()
+                        if config_key:
+                            if config_key in self.config_key_map:
+                                self.failed_plugins.append(
+                                    (
+                                        module_name,
+                                        name,
+                                        f"config key '{config_key}' is already registered by "
+                                        f"{self.config_key_map[config_key]} and this is not allowed.",
+                                    )
+                                )
+                            else:
+                                self.config_key_map[config_key] = health_check_types[0]
 
     def is_naming_convention_correct(
         self, module_name: str, class_name: str

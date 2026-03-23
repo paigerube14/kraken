@@ -30,6 +30,9 @@ class SimpleHealthCheckPlugin(AbstractHealthCheckPlugin):
     def get_health_check_types(self) -> list[str]:
         return ["simple_health_check", "test_health_check"]
 
+    def get_config_key(self) -> str:
+        return "simple_health_checks"
+
     def increment_iterations(self) -> None:
         self.current_iterations += 1
 

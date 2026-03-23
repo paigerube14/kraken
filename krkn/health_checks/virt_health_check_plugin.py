@@ -5,16 +5,16 @@ This plugin provides health checking for KubeVirt virtual machines and VMIs
 during chaos engineering experiments.
 
 Example configuration in config.yaml:
-    kubevirt_checks:
-      type: virt_health_check
-      namespace: "default"
-      name: ".*"                    # VMI name regex pattern
-      interval: 2                   # Check interval in seconds
-      disconnected: false           # Use disconnected SSH access
-      only_failures: false          # Only report failures
-      ssh_node: ""                  # Common SSH node for fallback
-      node_names: ""                # Comma-separated node names to filter
-      exit_on_failure: false        # Exit if failures persist at end
+kubevirt_checks:
+    type: virt_health_check
+    namespace: "default"
+    name: ".*"                    # VMI name regex pattern
+    interval: 2                   # Check interval in seconds
+    disconnected: false           # Use disconnected SSH access
+    only_failures: false          # Only report failures
+    ssh_node: ""                  # Common SSH node for fallback
+    node_names: ""                # Comma-separated node names to filter
+    exit_on_failure: false        # Exit if failures persist at end
 """
 
 import logging
@@ -87,6 +87,14 @@ class VirtHealthCheckPlugin(AbstractHealthCheckPlugin):
         :return: list of health check type identifiers
         """
         return ["virt_health_check", "kubevirt_health_check", "vm_health_check"]
+
+    def get_config_key(self) -> str:
+        """
+        Returns the top-level config.yaml key this plugin reads from.
+
+        :return: config key string
+        """
+        return "kubevirt_checks"
 
     def increment_iterations(self) -> None:
         """

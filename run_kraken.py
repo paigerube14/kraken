@@ -149,7 +149,6 @@ def main(options, command: Optional[str]) -> int:
             config["performance_monitoring"], "check_critical_alerts", False
         )
         telemetry_api_url = config["telemetry"].get("api_url")
-        health_check_config = get_yaml_item_value(config, "health_checks",{})
         kubevirt_check_config = get_yaml_item_value(config, "kubevirt_checks", {})
         
         # Initialize clients
@@ -370,31 +369,11 @@ def main(options, command: Optional[str]) -> int:
                 logging.error(f"⛔ Class: {class_name} Module: {module_name}")
                 logging.error(f"⚠️ {error}\n")
 
-        # Initialize health check plugins
-        health_check_telemetry_queue = queue.Queue()
-        health_checker = None
-        health_check_worker = None
-
-        # Create HTTP health check plugin if configured
-        # HTTP checker runs continuously in a background thread
-        if health_check_config and health_check_config.get("config"):
-            try:
-                health_checker = health_check_factory.create_plugin(
-                    health_check_type="http_health_check",
-                    iterations=iterations
-                )
-                health_check_worker = threading.Thread(
-                    target=health_checker.run_health_check,
-                    args=(health_check_config, health_check_telemetry_queue)
-                )
-                health_check_worker.start()
-            except HealthCheckPluginNotFound:
-                logging.warning("HTTP health check plugin not found, skipping")
-
-        # Create virt health check plugin if configured
-        # Virt checker spawns its own worker threads internally (no separate thread needed)
+        # Virt health check plugin is special: it spawns its own threads and has
+        # a post-chaos gather step, so it is handled separately.
         kubevirt_check_telemetry_queue = queue.SimpleQueue()
         kubevirt_checker = None
+        virt_plugin_type = health_check_factory.config_key_map.get("kubevirt_checks")
 
         if kubevirt_check_config and kubevirt_check_config.get("namespace"):
             try:
@@ -407,6 +386,34 @@ def main(options, command: Optional[str]) -> int:
                 kubevirt_checker.run_health_check(kubevirt_check_config, kubevirt_check_telemetry_queue)
             except HealthCheckPluginNotFound:
                 logging.warning("Virt health check plugin not found, skipping")
+
+        # Generic health check plugins: each plugin declares its own config key via
+        # get_config_key(). The factory builds config_key_map at startup so any new
+        # plugin placed in krkn/health_checks/ is discovered and started automatically.
+        # Each generic plugin runs in an external thread and puts results into a Queue.
+        generic_health_checkers = []  # list of (plugin, worker_thread, telemetry_queue)
+
+        for config_key, plugin_type in health_check_factory.config_key_map.items():
+            if plugin_type == virt_plugin_type:
+                continue  # virt is handled above
+            plugin_config = get_yaml_item_value(config, config_key, {})
+            if not plugin_config:
+                continue
+            try:
+                plugin = health_check_factory.create_plugin(
+                    health_check_type=plugin_type,
+                    iterations=iterations
+                )
+                tq = queue.Queue()
+                worker = threading.Thread(
+                    target=plugin.run_health_check,
+                    args=(plugin_config, tq)
+                )
+                worker.start()
+                generic_health_checkers.append((plugin, worker, tq))
+                logging.info(f"Started health check plugin '{plugin_type}' reading from config key '{config_key}'")
+            except HealthCheckPluginNotFound:
+                logging.warning(f"Health check plugin '{plugin_type}' not found, skipping")
 
         # Loop to run the chaos starts here
         while int(iteration) < iterations and run_signal != "STOP":
@@ -492,15 +499,15 @@ def main(options, command: Optional[str]) -> int:
         # Signal all health check plugins to stop (handles early exit due to STOP/alerts/daemon mode)
         health_check_factory.stop_all()
 
-        # Collect health check telemetry
-        if health_check_worker:
-            health_check_worker.join()
+        # Collect generic health check telemetry (all plugins except virt)
+        all_health_check_telemetry = []
+        for plugin, worker, tq in generic_health_checkers:
+            worker.join()
             try:
-                chaos_telemetry.health_checks = health_check_telemetry_queue.get_nowait()
+                all_health_check_telemetry.extend(tq.get_nowait())
             except queue.Empty:
-                chaos_telemetry.health_checks = None
-        else:
-            chaos_telemetry.health_checks = None
+                pass
+        chaos_telemetry.health_checks = all_health_check_telemetry if all_health_check_telemetry else None
 
         # Collect virt check telemetry
         if kubevirt_checker:
@@ -688,9 +695,10 @@ def main(options, command: Optional[str]) -> int:
             # sys.exit(2)
             return 2
 
-        if health_checker and health_checker.get_return_value() != 0:
-            logging.error("Health check failed for the applications, Please check; exiting")
-            return health_checker.get_return_value()
+        for plugin, _, _ in generic_health_checkers:
+            if plugin.get_return_value() != 0:
+                logging.error("Health check failed for the applications, Please check; exiting")
+                return plugin.get_return_value()
 
         if kubevirt_checker and kubevirt_checker.get_return_value() != 0:
             logging.error("Kubevirt check still had failed VMIs at end of run, Please check; exiting")

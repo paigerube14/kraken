@@ -61,6 +61,14 @@ class HttpHealthCheckPlugin(AbstractHealthCheckPlugin):
         """
         return ["http_health_check"]
 
+    def get_config_key(self) -> str:
+        """
+        Returns the top-level config.yaml key this plugin reads from.
+
+        :return: config key string
+        """
+        return "health_checks"
+
     def increment_iterations(self) -> None:
         """
         Increments the current iteration counter.
