@@ -1,6 +1,9 @@
 import importlib
 import inspect
+import logging
 import pkgutil
+import queue
+import threading
 from typing import Type, Tuple, Optional, Any
 from krkn.health_checks.abstract_health_check_plugin import AbstractHealthCheckPlugin
 
@@ -83,6 +86,65 @@ class HealthCheckFactory:
         """
         for plugin in self.active_plugins:
             plugin.stop()
+
+    def start_all(
+        self, config: dict[str, Any], iterations: int = 1, **kwargs
+    ) -> list[tuple[AbstractHealthCheckPlugin, Any, Any]]:
+        """
+        Starts all health check plugins that have a matching section in config.
+
+        Iterates over ``config_key_map`` and for each key present in config:
+
+        - Plugins where ``manages_own_threads()`` returns ``True`` (e.g. virt) have
+          ``run_health_check()`` called directly and use a ``SimpleQueue``.
+          ``worker=None`` is stored as the sentinel so callers can detect this case
+          and use ``plugin.thread_join()`` instead of ``worker.join()``.
+
+        - All other plugins are wrapped in an external ``threading.Thread`` and use
+          a standard ``Queue``.
+
+        Any extra ``kwargs`` (e.g. ``krkn_lib=kubecli``) are forwarded to
+        ``create_plugin()``; plugins that don't need them ignore them via ``**kwargs``
+        in their constructors.
+
+        :param config: the full config dict loaded from config.yaml
+        :param iterations: the number of chaos iterations to run
+        :param kwargs: additional keyword arguments forwarded to each plugin constructor
+        :return: list of ``(plugin, worker_thread, telemetry_queue)`` tuples;
+                 ``worker_thread`` is ``None`` for self-threading plugins
+        """
+        checkers = []
+        for config_key, plugin_type in self.config_key_map.items():
+            plugin_config = config.get(config_key)
+            if not plugin_config:
+                continue
+            try:
+                plugin = self.create_plugin(
+                    health_check_type=plugin_type,
+                    iterations=iterations,
+                    **kwargs
+                )
+                if plugin.manages_own_threads():
+                    tq = queue.SimpleQueue()
+                    plugin.run_health_check(plugin_config, tq)
+                    checkers.append((plugin, None, tq))
+                else:
+                    tq = queue.Queue()
+                    worker = threading.Thread(
+                        target=plugin.run_health_check,
+                        args=(plugin_config, tq)
+                    )
+                    worker.start()
+                    checkers.append((plugin, worker, tq))
+                logging.info(
+                    f"Started health check plugin '{plugin_type}' "
+                    f"reading from config key '{config_key}'"
+                )
+            except HealthCheckPluginNotFound:
+                logging.warning(
+                    f"Health check plugin '{plugin_type}' not found, skipping"
+                )
+        return checkers
 
     def __load_plugins(self, base_class: Type):
         """

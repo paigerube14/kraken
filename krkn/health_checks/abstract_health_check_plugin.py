@@ -93,6 +93,23 @@ class AbstractHealthCheckPlugin(ABC):
         """
         pass
 
+    def manages_own_threads(self) -> bool:
+        """
+        Indicates whether this plugin spawns and manages its own worker threads internally.
+
+        Plugins that return ``True`` have ``run_health_check()`` called directly (it returns
+        immediately after spawning internal threads) and must expose a ``thread_join()`` method
+        for the factory to wait on completion.
+
+        Plugins that return ``False`` (the default) are wrapped in an external thread by the
+        factory's ``start_all()`` method.
+
+        Override this method and return ``True`` only if your plugin manages its own threads.
+
+        :return: False by default; True for self-threading plugins like VirtHealthCheckPlugin
+        """
+        return False
+
     def get_return_value(self) -> int:
         """
         Returns the current return value indicating success or failure.

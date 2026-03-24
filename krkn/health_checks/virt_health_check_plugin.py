@@ -96,6 +96,15 @@ class VirtHealthCheckPlugin(AbstractHealthCheckPlugin):
         """
         return "kubevirt_checks"
 
+    def manages_own_threads(self) -> bool:
+        """
+        Virt plugin spawns its own worker threads internally via run_health_check().
+        The factory calls run_health_check() directly and uses thread_join() to wait.
+
+        :return: True
+        """
+        return True
+
     def increment_iterations(self) -> None:
         """
         Thread-safe method to increment current_iterations.
