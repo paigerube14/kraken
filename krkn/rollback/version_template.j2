@@ -12,8 +12,11 @@ from krkn_lib.telemetry.ocp import KrknTelemetryOpenshift
 
 @dataclass(frozen=True)
 class RollbackContent:
-    resource_identifier: str
+    resource_identifier: str = ""
     namespace: Optional[str] = None
+    cloud_type: Optional[str] = None
+    instance_ids: Optional[tuple] = None
+    skip_kubernetes: bool = False
 
 # Actual rollback callable
 {{ rollback_callable_code }}
@@ -42,9 +45,10 @@ if __name__ == '__main__':
     # setup SafeLogger for telemetry
     telemetry_log_path = os.path.join(log_directory, 'logs', 'telemetry.log')
     safe_logger = SafeLogger(telemetry_log_path)
-    # setup krkn-lib objects
-    lib_openshift = KrknOpenshift(kubeconfig_path=kubeconfig_path)
-    lib_telemetry = KrknTelemetryOpenshift(safe_logger=safe_logger, lib_openshift=lib_openshift)
+    # setup krkn-lib objects (skipped for cloud-only scenarios that lost k8s connectivity)
+    if not rollback_content.skip_kubernetes:
+        lib_openshift = KrknOpenshift(kubeconfig_path=kubeconfig_path)
+        lib_telemetry = KrknTelemetryOpenshift(safe_logger=safe_logger, lib_openshift=lib_openshift)
 
     # execute
     logging.info('Executing rollback callable...')

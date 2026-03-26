@@ -146,12 +146,18 @@ def execute_rollback_version_files(
     for version_file in version_files:
         try:
             logger.info(f"Executing rollback version file: {version_file}")
-            
+
             # Parse the rollback module to get function and content
             rollback_callable, rollback_content = _parse_rollback_module(version_file)
+
+            # Cloud-only scenarios (e.g. shut_down) lose k8s connectivity, so pass None
+            telemetry_arg = None if getattr(rollback_content, 'skip_kubernetes', False) else telemetry_ocp
+            if telemetry_arg is None and not getattr(rollback_content, 'skip_kubernetes', False):
+                logger.warning("telemetry_ocp is None but skip_kubernetes is not set; rollback callable will receive None")
+
             # Execute the rollback function
             logger.info('Executing rollback callable...')
-            rollback_callable(rollback_content, telemetry_ocp)
+            rollback_callable(rollback_content, telemetry_arg)
             logger.info('Rollback completed.')
             success = True
         except Exception as e:
