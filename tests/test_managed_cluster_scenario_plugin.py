@@ -145,6 +145,79 @@ class TestManagedClusterScenarioPlugin(unittest.TestCase):
         self.assertEqual(call_tracker[0], "managedcluster_start_scenario")
 
 
+    @patch('builtins.open', create=True)
+    @patch('yaml.full_load')
+    def test_run_returns_error_when_actions_empty(self, mock_yaml, _mock_open):
+        """
+        Test that run() returns 1 and logs an error when actions is an empty list
+        """
+        mock_yaml.return_value = {
+            "managedcluster_scenarios": [
+                {
+                    "actions": [],
+                    "managedcluster_name": "test-cluster",
+                    "runs": 1,
+                    "instance_count": 1,
+                    "timeout": 120
+                }
+            ]
+        }
+
+        mock_lib_telemetry = Mock(spec=KrknTelemetryOpenshift)
+        mock_lib_telemetry.get_lib_kubernetes.return_value = self.mock_kubecli
+        mock_scenario_telemetry = Mock()
+
+        with self.assertLogs('root', level='ERROR') as log_ctx:
+            result = self.plugin.run(
+                run_uuid="test-uuid",
+                scenario="test_scenario.yaml",
+                lib_telemetry=mock_lib_telemetry,
+                scenario_telemetry=mock_scenario_telemetry,
+            )
+
+        self.assertEqual(result, 1)
+        self.assertTrue(
+            any("actions" in msg for msg in log_ctx.output),
+            f"Expected 'actions' in error log, got: {log_ctx.output}",
+        )
+
+    @patch('builtins.open', create=True)
+    @patch('yaml.full_load')
+    def test_run_returns_error_when_actions_none(self, mock_yaml, _mock_open):
+        """
+        Test that run() returns 1 and logs an error when actions is None
+        """
+        mock_yaml.return_value = {
+            "managedcluster_scenarios": [
+                {
+                    "actions": None,
+                    "managedcluster_name": "test-cluster",
+                    "runs": 1,
+                    "instance_count": 1,
+                    "timeout": 120
+                }
+            ]
+        }
+
+        mock_lib_telemetry = Mock(spec=KrknTelemetryOpenshift)
+        mock_lib_telemetry.get_lib_kubernetes.return_value = self.mock_kubecli
+        mock_scenario_telemetry = Mock()
+
+        with self.assertLogs('root', level='ERROR') as log_ctx:
+            result = self.plugin.run(
+                run_uuid="test-uuid",
+                scenario="test_scenario.yaml",
+                lib_telemetry=mock_lib_telemetry,
+                scenario_telemetry=mock_scenario_telemetry,
+            )
+
+        self.assertEqual(result, 1)
+        self.assertTrue(
+            any("actions" in msg for msg in log_ctx.output),
+            f"Expected 'actions' in error log, got: {log_ctx.output}",
+        )
+
+
 class TestCommonFunctions(unittest.TestCase):
     """
     Test suite for common_functions module
