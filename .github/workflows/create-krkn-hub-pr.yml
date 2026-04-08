@@ -1,0 +1,42 @@
+name: Open krkn-hub PR for new scenario plugin
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'krkn/scenario_plugins/**'
+
+jobs:
+  detect-and-create-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout krkn
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect new scenario plugin directories
+        id: detect
+        shell: bash
+        run: |
+          NEW_PLUGINS=$(git diff --name-status HEAD~1 HEAD -- 'krkn/scenario_plugins/' \
+            | awk '$1 == "A" { print $2 }' \
+            | grep -E 'krkn/scenario_plugins/[^/]+/[^/]+_scenario_plugin\.py$' \
+            | sed -E 's|krkn/scenario_plugins/([^/]+)/.*|\1|' \
+            | sort -u)
+          echo "Found new plugins: $NEW_PLUGINS"
+          NEW_PLUGINS_SPACE=$(echo "$NEW_PLUGINS" | tr '\n' ' ' | xargs)
+          echo "new_plugins=$NEW_PLUGINS_SPACE" >> $GITHUB_OUTPUT
+
+      - name: Create skeleton and open PR in krkn-hub
+        if: steps.detect.outputs.new_plugins != ''
+        env:
+          GH_TOKEN: ${{ secrets.KRKN_HUB_PAT }}
+          NEW_PLUGINS: ${{ steps.detect.outputs.new_plugins }}
+          COMMIT_SHA: ${{ github.sha }}
+        shell: bash
+        run: bash .github/scripts/create-krkn-hub-pr.sh
