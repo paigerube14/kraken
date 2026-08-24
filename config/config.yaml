@@ -58,8 +58,8 @@ kraken:
                - scenarios/kube/node_interface_down.yaml
                - scenarios/openshift/virt_network_chaos.yaml
                - scenarios/openshift/virt_network.yaml
-       -  kubevirt_vm_outage:
-              - scenarios/kubevirt/kubevirt-vm-outage.yaml
+       -  vmi_outage:  # Also supports legacy name: kubevirt_vm_outage
+              - scenarios/kubevirt/vmi-outage.yaml
        - http_load_scenarios:
               - scenarios/kube/http_load_scenario.yml
 
