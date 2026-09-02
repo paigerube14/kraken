@@ -139,3 +139,19 @@ class AbstractHealthCheckPlugin(ABC):
         :return: None
         """
         self.ret_value = value
+
+    @abstractmethod
+    def run_once(self, config: dict[str, Any]) -> dict[str, Any]:
+        """
+        Runs a one-time health check (for pre/post chaos health checks).
+        This method performs a single health check pass and returns the results immediately.
+
+        :param config: the health check configuration dictionary from config.yaml
+        :return: dictionary with health check results:
+                 {
+                   "passed": bool,       # True if all checks passed
+                   "failures": list,     # List of failure descriptions
+                   "details": dict       # Plugin-specific details
+                 }
+        """
+        pass

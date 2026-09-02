@@ -496,6 +496,35 @@ def main(options, command: Optional[str], out: Optional[dict] = None) -> int:
                 else:
                     logging.warning(f"  ⚠️ {stype} ➡️ no matching plugin found")
 
+        # Pre-chaos health checks (run health checks configured with run_during: "pre")
+        logging.info("=" * 80)
+        logging.info("Running pre-chaos health checks...")
+        logging.info("=" * 80)
+        pre_check_results = health_check_factory.run_all_once(
+            config, check_type="pre", krkn_lib=kubecli
+        )
+        logging.info(pre_check_results["summary"])
+
+        if not pre_check_results["passed"]:
+            logging.warning(
+                f"Pre-chaos health check failed with {len(pre_check_results['failures'])} failure(s)"
+            )
+            if pre_check_results.get("exit_on_failure", False):
+                logging.error(
+                    "Pre-chaos health check failed and exit_on_failure is True. "
+                    "Chaos scenarios will not be executed."
+                )
+                return 4  # Exit code 4 for pre-health-check failure
+            else:
+                logging.warning(
+                    "Pre-chaos health check failed but exit_on_failure is False. "
+                    "Continuing with chaos scenarios..."
+                )
+        else:
+            if pre_check_results["details"]:  # Only log if checks actually ran
+                logging.info("✅ Pre-chaos health checks passed")
+        logging.info("=" * 80)
+
         # Start all health check plugins discovered via config_key_map.
         # Returns list of (plugin, worker_thread, telemetry_queue);
         # worker_thread is None for self-threading plugins (e.g. virt).
@@ -586,6 +615,33 @@ def main(options, command: Optional[str], out: Optional[dict] = None) -> int:
 
         # Signal all health check plugins to stop (handles early exit due to STOP/alerts/daemon mode)
         health_check_factory.stop_all()
+
+        # Post-chaos health checks (run health checks configured with run_during: "post")
+        logging.info("=" * 80)
+        logging.info("Running post-chaos health checks...")
+        logging.info("=" * 80)
+        post_check_results = health_check_factory.run_all_once(
+            config, check_type="post", krkn_lib=kubecli
+        )
+        logging.info(post_check_results["summary"])
+
+        post_check_failed = False
+        if not post_check_results["passed"]:
+            logging.warning(
+                f"Post-chaos health check failed with {len(post_check_results['failures'])} failure(s)"
+            )
+            post_check_failed = True
+            if post_check_results.get("exit_on_failure", False):
+                logging.error("Post-chaos health check failed and exit_on_failure is True")
+            else:
+                logging.warning(
+                    "Post-chaos health check failed but exit_on_failure is False. "
+                    "Will continue with normal exit code evaluation..."
+                )
+        else:
+            if post_check_results["details"]:  # Only log if checks actually ran
+                logging.info("✅ Post-chaos health checks passed")
+        logging.info("=" * 80)
 
         # Collect telemetry from all health check plugins.
         # worker=None means the plugin manages its own threads (virt); use thread_join() + SimpleQueue drain.
@@ -815,6 +871,7 @@ def main(options, command: Optional[str], out: Optional[dict] = None) -> int:
         #   1 = post-scenario failure
         #   2 = critical Prometheus alerts
         #   3+ = health check plugin failure
+        #   4 = pre/post health check failure (when exit_on_failure is True)
         if failed_post_scenarios:
             logging.error(
                 "Post scenarios are still failing at the end of all iterations"
@@ -840,6 +897,11 @@ def main(options, command: Optional[str], out: Optional[dict] = None) -> int:
         if not chaos_telemetry.job_status:
             logging.error("job_status is false, please check; exiting")
             return 1
+
+        # Check post-chaos health check failure
+        if post_check_failed and post_check_results.get("exit_on_failure", False):
+            logging.error("Post-chaos health check failed, please check; exiting")
+            return 4
 
         logging.info(
             "Successfully finished running Kraken, exiting"

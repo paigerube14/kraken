@@ -261,3 +261,70 @@ class HttpHealthCheckPlugin(AbstractHealthCheckPlugin):
 
         # Put telemetry data in the queue
         telemetry_queue.put(health_check_telemetry)
+
+    def run_once(self, config: dict[str, Any]) -> dict[str, Any]:
+        """
+        Runs a one-time HTTP health check for all configured endpoints.
+
+        :param config: the health check configuration dictionary
+        :return: dictionary with results:
+                 {
+                   "passed": bool,
+                   "failures": list of {"url": str, "status_code": int, "message": str},
+                   "details": dict with per-URL status
+                 }
+        """
+        if not config or not config.get("config") or not any(
+            cfg.get("url") for cfg in config.get("config", [])
+        ):
+            logging.info("HTTP health check config is not defined, skipping one-time check")
+            return {"passed": True, "failures": [], "details": {}}
+
+        failures = []
+        details = {}
+
+        for check_config in config.get("config", []):
+            auth, headers = None, None
+            verify_url = check_config.get("verify_url", True)
+            url = check_config.get("url")
+
+            if not url:
+                continue
+
+            # Set up authentication
+            if check_config.get("bearer_token"):
+                bearer_token = "Bearer " + check_config["bearer_token"]
+                headers = {"Authorization": bearer_token}
+
+            if check_config.get("auth"):
+                auth = tuple(check_config["auth"].split(","))
+
+            # Make the HTTP request
+            try:
+                response = self.make_request(url, auth, headers, verify_url)
+                details[url] = {
+                    "status_code": response["status_code"],
+                    "passed": response["status"]
+                }
+
+                if not response["status"]:
+                    failures.append({
+                        "url": url,
+                        "status_code": response["status_code"],
+                        "message": f"HTTP health check failed for {url}: status {response['status_code']}"
+                    })
+            except Exception as e:
+                logging.error(f"Exception during one-time HTTP health check for {url}: {e}")
+                details[url] = {"status_code": 500, "passed": False, "error": str(e)}
+                failures.append({
+                    "url": url,
+                    "status_code": 500,
+                    "message": f"HTTP health check exception for {url}: {str(e)}"
+                })
+
+        passed = len(failures) == 0
+        return {
+            "passed": passed,
+            "failures": failures,
+            "details": details
+        }
