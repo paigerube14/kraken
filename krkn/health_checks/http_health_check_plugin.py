@@ -32,7 +32,7 @@ Example configuration in config.yaml:
 import logging
 import queue
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import requests
@@ -157,6 +157,7 @@ class HttpHealthCheckPlugin(AbstractHealthCheckPlugin):
         health_check_telemetry = []
         health_check_tracker = {}
         interval = config.get("interval", 2)
+        only_failures = config.get("only_failures", False)
 
         # Track current response status for each URL
         response_tracker = {
@@ -228,9 +229,12 @@ class HttpHealthCheckPlugin(AbstractHealthCheckPlugin):
                             "start_timestamp": start_timestamp.isoformat(),
                             "end_timestamp": end_timestamp.isoformat(),
                             "duration": duration,
+                            "phase": "during",
                         }
 
-                        health_check_telemetry.append(HealthCheck(change_record))
+                        # Only include if: not only_failures OR check failed
+                        if not only_failures or previous_status_code != "200":
+                            health_check_telemetry.append(HealthCheck(change_record))
 
                         if response_tracker[url] != True:
                             response_tracker[url] = True
@@ -256,17 +260,27 @@ class HttpHealthCheckPlugin(AbstractHealthCheckPlugin):
                 ].isoformat(),
                 "end_timestamp": health_check_end_timestamp.isoformat(),
                 "duration": duration,
+                "phase": "during",
             }
-            health_check_telemetry.append(HealthCheck(final_record))
+            # Only include if: not only_failures OR check failed
+            if not only_failures or health_check_tracker[url]["status_code"] != 200:
+                health_check_telemetry.append(HealthCheck(final_record))
 
         # Put telemetry data in the queue
         telemetry_queue.put(health_check_telemetry)
 
-    def run_once(self, config: dict[str, Any]) -> dict[str, Any]:
+    def run_once(
+        self,
+        config: dict[str, Any],
+        telemetry_queue: queue.Queue = None,
+        phase: str = None
+    ) -> dict[str, Any]:
         """
         Runs a one-time HTTP health check for all configured endpoints.
 
         :param config: the health check configuration dictionary
+        :param telemetry_queue: optional queue to put telemetry data
+        :param phase: optional phase identifier (pre, during, post)
         :return: dictionary with results:
                  {
                    "passed": bool,
@@ -282,6 +296,7 @@ class HttpHealthCheckPlugin(AbstractHealthCheckPlugin):
 
         failures = []
         details = {}
+        only_failures = config.get("only_failures", False)
 
         for check_config in config.get("config", []):
             auth, headers = None, None
@@ -301,11 +316,34 @@ class HttpHealthCheckPlugin(AbstractHealthCheckPlugin):
 
             # Make the HTTP request
             try:
+                start_time = time.time()
+                start_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
                 response = self.make_request(url, auth, headers, verify_url)
+
+                end_time = time.time()
+                end_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                duration = end_time - start_time
+
                 details[url] = {
                     "status_code": response["status_code"],
                     "passed": response["status"]
                 }
+
+                # Create telemetry record if queue provided
+                # Only include if: not only_failures OR check failed
+                if telemetry_queue is not None and (not only_failures or not response["status"]):
+                    from krkn_lib.models.telemetry.models import HealthCheck
+                    telemetry_record = {
+                        "url": url,
+                        "status": response["status"],
+                        "status_code": str(response["status_code"]),
+                        "start_timestamp": start_timestamp,
+                        "end_timestamp": end_timestamp,
+                        "duration": duration,
+                        "phase": phase if phase else "during"
+                    }
+                    telemetry_queue.put(HealthCheck(telemetry_record))
 
                 if not response["status"]:
                     failures.append({
@@ -315,6 +353,7 @@ class HttpHealthCheckPlugin(AbstractHealthCheckPlugin):
                     })
             except Exception as e:
                 logging.error(f"Exception during one-time HTTP health check for {url}: {e}")
+                end_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                 details[url] = {"status_code": 500, "passed": False, "error": str(e)}
                 failures.append({
                     "url": url,

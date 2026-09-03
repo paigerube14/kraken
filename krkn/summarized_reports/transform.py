@@ -484,79 +484,132 @@ def build_chaos_report(chaos_output: dict) -> str:
     # --- Health Checks ---
     health_checks = telemetry.get("health_checks")
     if health_checks:
-        lines.append("HEALTH CHECKS")
+        # Group by phase
+        checks_by_phase = {}
         for check in health_checks:
             if isinstance(check, dict):
-                url = check.get("url", "")
-                status_code = check.get("status_code", "")
-                duration = check.get("duration")
-                passed = check.get("status") or check.get("passed")
-                status_str = "PASS" if passed else "FAIL"
-                detail = url or check.get("name") or check.get("check_name", "N/A")
-                extra = []
-                if status_code:
-                    extra.append(f"HTTP {status_code}")
-                if duration is not None and duration != "":
-                    extra.append(f"{float(duration):.2f}s")
-                suffix = f" ({', '.join(extra)})" if extra else ""
-                lines.append(f"  {status_str:<6} {detail}{suffix}")
-            else:
-                lines.append(f"  {check}")
+                phase = check.get("phase", "during")
+                if phase not in checks_by_phase:
+                    checks_by_phase[phase] = []
+                checks_by_phase[phase].append(check)
+
+        # Display in order: pre, during, post
+        for phase in ["pre", "during", "post"]:
+            if phase in checks_by_phase:
+                phase_label = phase.upper()
+                lines.append(f"HEALTH CHECKS (HTTP) - {phase_label}")
+                for check in checks_by_phase[phase]:
+                    url = check.get("url", "")
+                    status_code = check.get("status_code", "")
+                    duration = check.get("duration")
+                    passed = check.get("status") or check.get("passed")
+                    status_str = "PASS" if passed else "FAIL"
+                    detail = url or check.get("name") or check.get("check_name", "N/A")
+                    extra = []
+                    if status_code:
+                        extra.append(f"HTTP {status_code}")
+                    if duration is not None and duration != "":
+                        extra.append(f"{float(duration):.2f}s")
+                    suffix = f" ({', '.join(extra)})" if extra else ""
+                    lines.append(f"  {status_str:<6} {detail}{suffix}")
+
+    # --- Object State Health Checks ---
+    object_state_checks = telemetry.get("object_state_checks")
+    if object_state_checks:
+        # Group by phase
+        checks_by_phase = {}
+        for check in object_state_checks:
+            if isinstance(check, dict):
+                phase = check.get("phase", "during")
+                if phase not in checks_by_phase:
+                    checks_by_phase[phase] = []
+                checks_by_phase[phase].append(check)
+
+        # Display in order: pre, during, post
+        for phase in ["pre", "during", "post"]:
+            if phase in checks_by_phase:
+                phase_label = phase.upper()
+                lines.append(f"OBJECT STATE CHECKS ({phase_label})")
+                for check in checks_by_phase[phase]:
+                    check_name = check.get("check_name", "unnamed")
+                    kind = check.get("kind", "")
+                    namespace = check.get("namespace", "")
+                    condition_type = check.get("condition_type", "")
+                    condition_status = check.get("condition_status", "")
+                    passed = check.get("passed", False)
+                    objects_checked = check.get("objects_checked", 0)
+                    objects_failed = check.get("objects_failed", 0)
+                    duration = check.get("duration")
+                    message = check.get("message", "")
+
+                    status_str = "PASS" if passed else "FAIL"
+
+                    # Build detail line
+                    detail_parts = [check_name]
+                    if kind:
+                        detail_parts.append(f"kind={kind}")
+                    if namespace:
+                        detail_parts.append(f"ns={namespace}")
+                    if condition_type:
+                        detail_parts.append(f"{condition_type}={condition_status}")
+
+                    detail = f"{' '.join(detail_parts)}"
+
+                    # Build extra info
+                    extra = []
+                    if objects_checked > 0:
+                        extra.append(f"{objects_checked} checked")
+                    if objects_failed > 0:
+                        extra.append(f"{objects_failed} failed")
+                    if duration is not None and duration != "":
+                        extra.append(f"{float(duration):.2f}s")
+
+                    suffix = f" ({', '.join(extra)})" if extra else ""
+                    lines.append(f"  {status_str:<6} {detail}{suffix}")
+
+                    # If failed, show which objects failed
+                    if not passed and message and message != "All objects passed":
+                        lines.append(f"         Failed: {message}")
 
     # --- KubeVirt Health Checks ---
     virt_checks = telemetry.get("virt_checks")
     if virt_checks:
-        lines.append("KUBEVIRT HEALTH CHECKS (pre-chaos)")
+        # Group by phase
+        checks_by_phase = {}
         for check in virt_checks:
             if isinstance(check, dict):
-                vm = check.get("vm_name") or check.get("vmi_name") or check.get("name", "N/A")
-                ns = check.get("namespace", "")
-                node = check.get("node_name", "")
-                ip = check.get("ip_address", "")
-                passed = check.get("status", True)
-                duration = check.get("duration")
-                status_str = "PASS" if passed else "FAIL"
-                label = f"{ns}/{vm}" if ns else vm
-                extra = []
-                if ip:
-                    extra.append(ip)
-                if node:
-                    extra.append(f"on {node}")
-                if duration is not None and duration != "":
-                    extra.append(f"{float(duration):.2f}s")
-                suffix = f" ({', '.join(extra)})" if extra else ""
-                lines.append(f"  {status_str:<6} {label}{suffix}")
-            else:
-                lines.append(f"  {check}")
+                phase = check.get("phase", "during")
+                if phase not in checks_by_phase:
+                    checks_by_phase[phase] = []
+                checks_by_phase[phase].append(check)
 
-    post_virt_checks = telemetry.get("post_virt_checks")
-    if post_virt_checks:
-        lines.append("KUBEVIRT HEALTH CHECKS (post-chaos)")
-        for check in post_virt_checks:
-            if isinstance(check, dict):
-                vm = check.get("vm_name") or check.get("vmi_name") or check.get("name", "N/A")
-                ns = check.get("namespace", "")
-                node = check.get("node_name", "")
-                ip = check.get("ip_address", "")
-                new_ip = check.get("new_ip_address", "")
-                passed = check.get("status", True)
-                duration = check.get("duration")
-                status_str = "PASS" if passed else "FAIL"
-                label = f"{ns}/{vm}" if ns else vm
-                extra = []
-                if ip:
-                    ip_str = ip
-                    if new_ip and new_ip != ip:
-                        ip_str += f" → {new_ip}"
-                    extra.append(ip_str)
-                if node:
-                    extra.append(f"on {node}")
-                if duration is not None and duration != "":
-                    extra.append(f"{float(duration):.2f}s")
-                suffix = f" ({', '.join(extra)})" if extra else ""
-                lines.append(f"  {status_str:<6} {label}{suffix}")
-            else:
-                lines.append(f"  {check}")
+        # Display in order: pre, during, post
+        for phase in ["pre", "during", "post"]:
+            if phase in checks_by_phase:
+                phase_label = phase.upper()
+                lines.append(f"KUBEVIRT HEALTH CHECKS - {phase_label}")
+                for check in checks_by_phase[phase]:
+                    vm = check.get("vm_name") or check.get("vmi_name") or check.get("name", "N/A")
+                    ns = check.get("namespace", "")
+                    node = check.get("node_name", "")
+                    ip = check.get("ip_address", "")
+                    new_ip = check.get("new_ip_address", "")
+                    passed = check.get("status", True)
+                    duration = check.get("duration")
+                    status_str = "PASS" if passed else "FAIL"
+                    label = f"{ns}/{vm}" if ns else vm
+                    extra = []
+                    if ip:
+                        ip_str = ip
+                        if new_ip and new_ip != ip:
+                            ip_str += f" → {new_ip}"
+                        extra.append(ip_str)
+                    if node:
+                        extra.append(f"on {node}")
+                    if duration is not None and duration != "":
+                        extra.append(f"{float(duration):.2f}s")
+                    suffix = f" ({', '.join(extra)})" if extra else ""
+                    lines.append(f"  {status_str:<6} {label}{suffix}")
 
     # --- Alerts & SLOs ---
 
@@ -637,10 +690,7 @@ def build_chaos_report(chaos_output: dict) -> str:
         lines.append(f"  {scenario_name:<28} : {score} / 100")
 
     overall_score = resiliency.get("resiliency_score", "N/A")
-    emoji = ""
-    if isinstance(overall_score, (int, float)):
-        emoji = "  ✅" if overall_score >= 90 else ("  ⚠️" if overall_score >= 70 else "  ❌")
-    lines.append(f"  Overall Score                : {overall_score} / 100{emoji}")
+    lines.append(f"  Overall Score                : {overall_score} / 100")
     lines.append("=" * 80)
 
     return "\n".join(lines)
@@ -780,8 +830,10 @@ def build_chaos_report_pdf(chaos_output: dict, output_path: str) -> str:
 
     node_infos = telemetry.get("node_summary_infos") or []
     health_checks = telemetry.get("health_checks")
-    virt_checks = telemetry.get("virt_checks")
-    post_virt_checks = telemetry.get("post_virt_checks")
+    all_virt_checks = telemetry.get("virt_checks") or []
+    # Filter virt_checks by phase
+    during_virt_checks = [c for c in all_virt_checks if isinstance(c, dict) and c.get("phase") == "during"]
+    post_virt_checks = [c for c in all_virt_checks if isinstance(c, dict) and c.get("phase") == "post"]
     failed_slos = total_slos - passed_slos
     per_scenario_scores = resiliency.get("scenarios", {})
     overall_score = resiliency.get("resiliency_score", "N/A")
@@ -1004,30 +1056,88 @@ def build_chaos_report_pdf(chaos_output: dict, output_path: str) -> str:
             if len(s["cluster_events"]) > 10:
                 f.append(_p(f"... and {len(s['cluster_events']) - 10} more"))
 
-    # 10. Health Checks
+    # 10. Health Checks (HTTP)
     if health_checks:
-        f.extend(_section_header("Health Checks"))
+        f.extend(_section_header("Health Checks (HTTP)"))
         rows = []
         for check in health_checks:
             if isinstance(check, dict):
                 url = check.get("url") or check.get("name") or check.get("check_name", "")
                 status_code = str(check.get("status_code", ""))
+                phase = check.get("phase", "during")
                 duration = ""
                 if check.get("duration") is not None and check.get("duration") != "":
                     duration = f"{float(check['duration']):.2f}s"
                 passed = check.get("status") or check.get("passed")
-                rows.append([url, status_code, duration, _badge("PASS" if passed else "FAIL", bool(passed))])
+                rows.append([url, status_code, phase, duration, _badge("PASS" if passed else "FAIL", bool(passed))])
             else:
-                rows.append([str(check), "", "", ""])
+                rows.append([str(check), "", "", "", ""])
         f.extend(_make_data_table(
-            ["URL / Endpoint", "Status Code", "Duration", "Result"], rows,
+            ["URL / Endpoint", "Status Code", "Phase", "Duration", "Result"], rows,
         ))
 
-    # 11. KubeVirt Health Checks (Pre-Chaos)
-    if virt_checks:
-        f.extend(_section_header("KubeVirt Health Checks (Pre-Chaos)"))
+    # 10a. Object State Health Checks
+    object_state_checks = telemetry.get("object_state_checks")
+    if object_state_checks:
+        # Group by phase
+        checks_by_phase = {}
+        for check in object_state_checks:
+            if isinstance(check, dict):
+                phase = check.get("phase", "during")
+                if phase not in checks_by_phase:
+                    checks_by_phase[phase] = []
+                checks_by_phase[phase].append(check)
+
+        # Display in order: pre, during, post
+        for phase in ["pre", "during", "post"]:
+            if phase in checks_by_phase:
+                phase_label = phase.capitalize()
+                f.extend(_section_header(f"Object State Checks ({phase_label}-Chaos)"))
+                rows = []
+                for check in checks_by_phase[phase]:
+                    check_name = check.get("check_name", "unnamed")
+                    kind = check.get("kind", "")
+                    namespace = check.get("namespace", "")
+                    condition = f"{check.get('condition_type', '')}={check.get('condition_status', '')}"
+                    objects_checked = check.get("objects_checked", 0)
+                    objects_failed = check.get("objects_failed", 0)
+                    duration = ""
+                    if check.get("duration") is not None and check.get("duration") != "":
+                        duration = f"{float(check['duration']):.2f}s"
+                    passed = check.get("passed", False)
+                    message = check.get("message", "")
+
+                    # Build objects info
+                    objects_info = f"{objects_checked} checked"
+                    if objects_failed > 0:
+                        objects_info += f", {objects_failed} failed"
+
+                    # Show failed objects if any
+                    failed_info = ""
+                    if not passed and message and message != "All objects passed":
+                        failed_info = message
+
+                    rows.append([
+                        check_name,
+                        kind,
+                        namespace,
+                        condition,
+                        objects_info,
+                        duration,
+                        _badge("PASS" if passed else "FAIL", bool(passed)),
+                        failed_info,
+                    ])
+
+                f.extend(_make_data_table(
+                    ["Check Name", "Kind", "Namespace", "Condition", "Objects", "Duration", "Result", "Failed Objects"],
+                    rows,
+                ))
+
+    # 11. KubeVirt Health Checks (During-Chaos)
+    if during_virt_checks:
+        f.extend(_section_header("KubeVirt Health Checks (During-Chaos)"))
         rows = []
-        for check in virt_checks:
+        for check in during_virt_checks:
             if isinstance(check, dict):
                 passed = not (check.get("status") is not None and not check.get("status"))
                 rows.append([

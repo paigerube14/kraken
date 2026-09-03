@@ -141,12 +141,22 @@ class AbstractHealthCheckPlugin(ABC):
         self.ret_value = value
 
     @abstractmethod
-    def run_once(self, config: dict[str, Any]) -> dict[str, Any]:
+    def run_once(
+        self,
+        config: dict[str, Any],
+        telemetry_queue: queue.Queue = None,
+        phase: str = None
+    ) -> dict[str, Any]:
         """
         Runs a one-time health check (for pre/post chaos health checks).
         This method performs a single health check pass and returns the results immediately.
 
+        When telemetry_queue is provided, implementations should create telemetry records
+        with the specified phase and put them in the queue for collection.
+
         :param config: the health check configuration dictionary from config.yaml
+        :param telemetry_queue: optional queue to put telemetry data for collection
+        :param phase: optional phase indicator ("pre", "post"); helps identify when check ran
         :return: dictionary with health check results:
                  {
                    "passed": bool,       # True if all checks passed

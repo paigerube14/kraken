@@ -497,13 +497,17 @@ def main(options, command: Optional[str], out: Optional[dict] = None) -> int:
                     logging.warning(f"  ⚠️ {stype} ➡️ no matching plugin found")
 
         # Pre-chaos health checks (run health checks configured with run_during: "pre")
-        logging.info("=" * 80)
-        logging.info("Running pre-chaos health checks...")
-        logging.info("=" * 80)
+        logging.debug("=" * 80)
+        logging.debug("Running pre-chaos health checks...")
+        logging.debug("=" * 80)
+
+        # Create telemetry queue for pre-checks
+        pre_check_telemetry_queue = queue.Queue()
+
         pre_check_results = health_check_factory.run_all_once(
-            config, check_type="pre", krkn_lib=kubecli
+            config, check_type="pre", krkn_lib=kubecli, telemetry_queue=pre_check_telemetry_queue
         )
-        logging.info(pre_check_results["summary"])
+        logging.debug(pre_check_results["summary"])
 
         if not pre_check_results["passed"]:
             logging.warning(
@@ -523,7 +527,35 @@ def main(options, command: Optional[str], out: Optional[dict] = None) -> int:
         else:
             if pre_check_results["details"]:  # Only log if checks actually ran
                 logging.info("✅ Pre-chaos health checks passed")
-        logging.info("=" * 80)
+        logging.debug("=" * 80)
+
+        # Collect pre-check telemetry - separate HealthCheck from ObjectStateCheck
+        pre_object_state_checks = []
+        pre_health_checks = []
+        try:
+            while not pre_check_telemetry_queue.empty():
+                telemetry_data = pre_check_telemetry_queue.get_nowait()
+                # Check the type to route to correct list
+                from krkn_lib.models.telemetry.models import HealthCheck, ObjectStateCheck
+                if isinstance(telemetry_data, HealthCheck):
+                    pre_health_checks.append(telemetry_data)
+                elif isinstance(telemetry_data, ObjectStateCheck):
+                    pre_object_state_checks.append(telemetry_data)
+                elif isinstance(telemetry_data, list):
+                    # Handle lists - check first item type
+                    for item in telemetry_data:
+                        if isinstance(item, HealthCheck):
+                            pre_health_checks.append(item)
+                        elif isinstance(item, ObjectStateCheck):
+                            pre_object_state_checks.append(item)
+                else:
+                    # Fallback: if it has check_name and kind, it's ObjectStateCheck
+                    if hasattr(telemetry_data, 'check_name') and hasattr(telemetry_data, 'kind'):
+                        pre_object_state_checks.append(telemetry_data)
+                    else:
+                        pre_health_checks.append(telemetry_data)
+        except queue.Empty:
+            pass
 
         # Start all health check plugins discovered via config_key_map.
         # Returns list of (plugin, worker_thread, telemetry_queue);
@@ -617,13 +649,17 @@ def main(options, command: Optional[str], out: Optional[dict] = None) -> int:
         health_check_factory.stop_all()
 
         # Post-chaos health checks (run health checks configured with run_during: "post")
-        logging.info("=" * 80)
-        logging.info("Running post-chaos health checks...")
-        logging.info("=" * 80)
+        logging.debug("=" * 80)
+        logging.debug("Running post-chaos health checks...")
+        logging.debug("=" * 80)
+
+        # Create telemetry queue for post-checks
+        post_check_telemetry_queue = queue.Queue()
+
         post_check_results = health_check_factory.run_all_once(
-            config, check_type="post", krkn_lib=kubecli
+            config, check_type="post", krkn_lib=kubecli, telemetry_queue=post_check_telemetry_queue
         )
-        logging.info(post_check_results["summary"])
+        logging.debug(post_check_results["summary"])
 
         post_check_failed = False
         if not post_check_results["passed"]:
@@ -641,14 +677,42 @@ def main(options, command: Optional[str], out: Optional[dict] = None) -> int:
         else:
             if post_check_results["details"]:  # Only log if checks actually ran
                 logging.info("✅ Post-chaos health checks passed")
-        logging.info("=" * 80)
+        logging.debug("=" * 80)
+
+        # Collect post-check telemetry - separate HealthCheck from ObjectStateCheck
+        post_object_state_checks = []
+        post_health_checks = []
+        try:
+            while not post_check_telemetry_queue.empty():
+                telemetry_data = post_check_telemetry_queue.get_nowait()
+                # Check the type to route to correct list
+                from krkn_lib.models.telemetry.models import HealthCheck, ObjectStateCheck
+                if isinstance(telemetry_data, HealthCheck):
+                    post_health_checks.append(telemetry_data)
+                elif isinstance(telemetry_data, ObjectStateCheck):
+                    post_object_state_checks.append(telemetry_data)
+                elif isinstance(telemetry_data, list):
+                    # Handle lists - check first item type
+                    for item in telemetry_data:
+                        if isinstance(item, HealthCheck):
+                            post_health_checks.append(item)
+                        elif isinstance(item, ObjectStateCheck):
+                            post_object_state_checks.append(item)
+                else:
+                    # Fallback: if it has check_name and kind, it's ObjectStateCheck
+                    if hasattr(telemetry_data, 'check_name') and hasattr(telemetry_data, 'kind'):
+                        post_object_state_checks.append(telemetry_data)
+                    else:
+                        post_health_checks.append(telemetry_data)
+        except queue.Empty:
+            pass
 
         # Collect telemetry from all health check plugins.
         # worker=None means the plugin manages its own threads (virt); use thread_join() + SimpleQueue drain.
         # worker=Thread means it ran in an external thread; use worker.join() + Queue.get_nowait().
         all_health_check_telemetry = []
+        during_object_state_checks = []
         chaos_telemetry.virt_checks = []
-        chaos_telemetry.post_virt_checks = []
         for plugin, worker, tq in generic_health_checkers:
             if worker is None:
                 # Virt plugin: join its internal threads then drain its SimpleQueue
@@ -656,15 +720,35 @@ def main(options, command: Optional[str], out: Optional[dict] = None) -> int:
                 virt_telem = []
                 while not tq.empty():
                     virt_telem.extend(tq.get_nowait())
-                chaos_telemetry.virt_checks = virt_telem
-                chaos_telemetry.post_virt_checks = plugin.gather_post_virt_checks(virt_telem)
+                # Gather post-virt checks and add them to the virt_checks list (with phase="post")
+                post_virt_telem = plugin.gather_post_virt_checks(virt_telem)
+                chaos_telemetry.virt_checks = virt_telem + post_virt_telem
             else:
                 worker.join()
                 try:
-                    all_health_check_telemetry.extend(tq.get_nowait())
+                    telemetry_data = tq.get_nowait()
+                    # Check if this is object state check telemetry
+                    if (telemetry_data and len(telemetry_data) > 0 and
+                        hasattr(telemetry_data[0], 'check_name') and
+                        hasattr(telemetry_data[0], 'kind')):
+                        # This is object state check telemetry
+                        during_object_state_checks.extend(telemetry_data)
+                    else:
+                        # This is regular health check telemetry
+                        all_health_check_telemetry.extend(telemetry_data)
                 except queue.Empty:
                     pass
-        chaos_telemetry.health_checks = all_health_check_telemetry if all_health_check_telemetry else None
+
+        # Merge pre, during, and post object state check telemetry
+        all_object_state_checks = (
+            pre_object_state_checks + during_object_state_checks + post_object_state_checks
+        )
+
+        # Merge pre, during, and post health check telemetry
+        all_health_checks = pre_health_checks + all_health_check_telemetry + post_health_checks
+
+        chaos_telemetry.health_checks = all_health_checks if all_health_checks else None
+        chaos_telemetry.object_state_checks = all_object_state_checks if all_object_state_checks else None
         # if platform is openshift will be collected
         # Cloud platform and network plugins metadata
         # through OCP specific APIs

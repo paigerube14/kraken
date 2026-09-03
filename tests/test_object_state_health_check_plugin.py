@@ -112,7 +112,7 @@ class TestObjectStateHealthCheckPlugin(unittest.TestCase):
         self.assertIn("has no conditions", message)
 
     def test_get_objects_pods(self):
-        """_get_objects retrieves pods correctly."""
+        """_get_objects retrieves pods correctly when API returns dicts."""
         self.mock_krkn_lib.list_pods.return_value = [
             {"metadata": {"name": "pod-1"}},
             {"metadata": {"name": "pod-2"}},
@@ -121,6 +121,35 @@ class TestObjectStateHealthCheckPlugin(unittest.TestCase):
         objects = self.plugin._get_objects("Pod", "default")
         self.assertEqual(len(objects), 2)
         self.mock_krkn_lib.list_pods.assert_called_once_with("default")
+
+    def test_get_objects_pods_as_strings(self):
+        """_get_objects handles when API returns strings (names) instead of dicts."""
+        # Some krkn_lib methods return strings
+        self.mock_krkn_lib.list_pods.return_value = ["pod-1", "pod-2"]
+
+        # Mock cli.read_namespaced_pod and api_client.sanitize_for_serialization
+        self.mock_krkn_lib.cli.read_namespaced_pod.side_effect = [
+            MagicMock(),  # Mock Kubernetes Pod object for pod-1
+            MagicMock(),  # Mock Kubernetes Pod object for pod-2
+        ]
+
+        self.mock_krkn_lib.api_client.sanitize_for_serialization.side_effect = [
+            {
+                "kind": "Pod",
+                "metadata": {"name": "pod-1", "namespace": "default"},
+                "status": {"conditions": [{"type": "Ready", "status": "True"}]}
+            },
+            {
+                "kind": "Pod",
+                "metadata": {"name": "pod-2", "namespace": "default"},
+                "status": {"conditions": [{"type": "Ready", "status": "True"}]}
+            }
+        ]
+
+        objects = self.plugin._get_objects("Pod", "default")
+        self.assertEqual(len(objects), 2)
+        self.assertEqual(objects[0]["metadata"]["name"], "pod-1")
+        self.assertEqual(objects[1]["metadata"]["name"], "pod-2")
 
     def test_get_objects_with_label_selector(self):
         """_get_objects uses label selector for pods."""
@@ -311,12 +340,11 @@ class TestObjectStateHealthCheckPlugin(unittest.TestCase):
         self.assertEqual(result["details"]["etcd-check"]["objects_checked"], 3)
         self.assertFalse(result["details"]["etcd-check"]["passed"])
 
-        # Message should contain all three pods
+        # Message should contain only failed pod (etcd-1), not the passing ones (etcd-0, etcd-2)
         message = result["details"]["etcd-check"]["message"]
-        self.assertIn("etcd-0", message)
         self.assertIn("etcd-1", message)
-        self.assertIn("etcd-2", message)
-        self.assertIn("NotReady", message)
+        self.assertNotIn("etcd-0", message)  # This pod passed, should not be in failed objects list
+        self.assertNotIn("etcd-2", message)  # This pod passed, should not be in failed objects list
 
     def test_multiple_objects_all_healthy(self):
         """When multiple objects match and all are healthy, check passes."""

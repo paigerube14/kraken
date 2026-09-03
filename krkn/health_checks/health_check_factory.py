@@ -177,7 +177,11 @@ class HealthCheckFactory:
         return checkers
 
     def run_all_once(
-        self, config: dict[str, Any], check_type: str = "pre", **kwargs
+        self,
+        config: dict[str, Any],
+        check_type: str = "pre",
+        telemetry_queue: queue.Queue = None,
+        **kwargs
     ) -> dict[str, Any]:
         """
         Runs all configured health checks once (for pre/post chaos health checks).
@@ -187,8 +191,12 @@ class HealthCheckFactory:
         creates a plugin instance and calls ``run_once()`` to perform a
         one-time health check.
 
+        When telemetry_queue is provided, plugins that support telemetry will
+        create telemetry records with the specified phase.
+
         :param config: the full config dict loaded from config.yaml
         :param check_type: "pre" or "post" to indicate check timing
+        :param telemetry_queue: optional queue for collecting telemetry from one-time checks
         :param kwargs: additional keyword arguments forwarded to each plugin constructor
         :return: dictionary with aggregated results:
                  {
@@ -227,11 +235,11 @@ class HealthCheckFactory:
                     register_active=False,
                     **kwargs
                 )
-                logging.info(
+                logging.debug(
                     f"Running {check_type}-chaos health check for '{plugin_type}' "
                     f"(config key: '{config_key}')"
                 )
-                result = plugin.run_once(plugin_config)
+                result = plugin.run_once(plugin_config, telemetry_queue=telemetry_queue, phase=check_type)
                 all_details[config_key] = result
                 plugins_checked.append(config_key)
 
@@ -242,7 +250,7 @@ class HealthCheckFactory:
                         f"failed with {len(result['failures'])} failure(s)"
                     )
                 else:
-                    logging.info(
+                    logging.debug(
                         f"{check_type.capitalize()}-chaos health check '{config_key}' passed"
                     )
 

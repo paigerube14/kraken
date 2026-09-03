@@ -57,7 +57,12 @@ class SimpleHealthCheckPlugin(AbstractHealthCheckPlugin):
         logging.info("Running simple health check")
         telemetry_queue.put({"status": "healthy"})
 
-    def run_once(self, config: dict[str, Any]) -> dict[str, Any]:
+    def run_once(
+        self,
+        config: dict[str, Any],
+        telemetry_queue: queue.Queue = None,
+        phase: str = None
+    ) -> dict[str, Any]:
         """
         Runs a one-time simple health check.
 

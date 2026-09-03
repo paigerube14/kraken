@@ -49,7 +49,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from krkn_lib.k8s import KrknKubernetes
-from krkn_lib.models.telemetry.models import HealthCheck
+from krkn_lib.models.telemetry.models import ObjectStateCheck
 from krkn_lib.utils.functions import get_yaml_item_value
 
 from krkn.health_checks.abstract_health_check_plugin import AbstractHealthCheckPlugin
@@ -121,7 +121,7 @@ class ObjectStateHealthCheckPlugin(AbstractHealthCheckPlugin):
         :param namespace: Namespace to search in
         :param object_name: Optional name or regex pattern
         :param label_selector: Optional label selector
-        :return: List of matching objects
+        :return: List of matching objects (as dictionaries)
         """
         try:
             # Map kind to appropriate API call
@@ -129,30 +129,61 @@ class ObjectStateHealthCheckPlugin(AbstractHealthCheckPlugin):
 
             if kind_lower == "pod":
                 if label_selector:
-                    objects = self.krkn_lib.list_pods(namespace, label_selector)
+                    raw_objects = self.krkn_lib.list_pods(namespace, label_selector)
                 else:
-                    objects = self.krkn_lib.list_pods(namespace)
+                    raw_objects = self.krkn_lib.list_pods(namespace)
             elif kind_lower == "deployment":
-                objects = self.krkn_lib.list_deployments(namespace)
+                raw_objects = self.krkn_lib.list_deployments(namespace)
             elif kind_lower == "statefulset":
-                objects = self.krkn_lib.list_statefulsets(namespace)
+                raw_objects = self.krkn_lib.list_statefulsets(namespace)
             elif kind_lower == "daemonset":
-                objects = self.krkn_lib.list_daemonsets(namespace)
+                raw_objects = self.krkn_lib.list_daemonsets(namespace)
             elif kind_lower == "replicaset":
-                objects = self.krkn_lib.list_replicasets(namespace)
+                raw_objects = self.krkn_lib.list_replicasets(namespace)
             else:
                 # For other kinds, try to get via dynamic client
                 logging.warning(
                     f"Kind '{kind}' may not be fully supported. "
                     f"Attempting to retrieve with generic API call."
                 )
-                objects = []
+                raw_objects = []
+
+            # Handle case where API returns strings (names) instead of objects
+            objects = []
+            if raw_objects:
+                for item in raw_objects:
+                    if isinstance(item, str):
+                        # API returned just names, need to get full object
+                        obj = self._get_object_by_name(kind, namespace, item)
+                        if obj:
+                            objects.append(obj)
+                    elif isinstance(item, dict):
+                        # Already a full object
+                        objects.append(item)
+                    else:
+                        # Kubernetes API object - convert to dict
+                        try:
+                            obj_dict = self.krkn_lib.api_client.sanitize_for_serialization(item)
+                            objects.append(obj_dict)
+                        except AttributeError:
+                            # If sanitize_for_serialization fails, try vars() for dataclasses
+                            try:
+                                obj_dict = vars(item)
+                                objects.append(obj_dict)
+                            except (TypeError, AttributeError) as e:
+                                logging.warning(
+                                    f"Could not convert {type(item)} to dict for {kind} in {namespace}: {e}"
+                                )
 
             # Filter by name pattern if provided
             if object_name and objects:
                 pattern = re.compile(object_name)
                 filtered_objects = []
                 for obj in objects:
+                    # Ensure obj is a dict before trying to access it
+                    if not isinstance(obj, dict):
+                        logging.warning(f"Skipping non-dict object during filtering: {type(obj)}")
+                        continue
                     obj_name = obj.get("metadata", {}).get("name", "")
                     if pattern.match(obj_name):
                         filtered_objects.append(obj)
@@ -166,6 +197,48 @@ class ObjectStateHealthCheckPlugin(AbstractHealthCheckPlugin):
             )
             return []
 
+    def _get_object_by_name(
+        self,
+        kind: str,
+        namespace: str,
+        name: str
+    ) -> Optional[dict]:
+        """
+        Get a single Kubernetes object by name.
+
+        :param kind: Kubernetes resource kind
+        :param namespace: Namespace
+        :param name: Object name
+        :return: Object dictionary or None
+        """
+        try:
+            kind_lower = kind.lower()
+
+            if kind_lower == "pod":
+                # Get raw Kubernetes Pod object instead of krkn_lib's simplified Pod dataclass
+                obj = self.krkn_lib.cli.read_namespaced_pod(name, namespace)
+                return self.krkn_lib.api_client.sanitize_for_serialization(obj)
+            elif kind_lower == "deployment":
+                # Get deployment using read_namespaced_deployment
+                obj = self.krkn_lib.apps_api.read_namespaced_deployment(name, namespace)
+                return self.krkn_lib.api_client.sanitize_for_serialization(obj)
+            elif kind_lower == "statefulset":
+                obj = self.krkn_lib.apps_api.read_namespaced_stateful_set(name, namespace)
+                return self.krkn_lib.api_client.sanitize_for_serialization(obj)
+            elif kind_lower == "daemonset":
+                obj = self.krkn_lib.apps_api.read_namespaced_daemon_set(name, namespace)
+                return self.krkn_lib.api_client.sanitize_for_serialization(obj)
+            elif kind_lower == "replicaset":
+                obj = self.krkn_lib.apps_api.read_namespaced_replica_set(name, namespace)
+                return self.krkn_lib.api_client.sanitize_for_serialization(obj)
+            else:
+                logging.warning(f"Cannot get individual {kind} object")
+                return None
+
+        except Exception as e:
+            logging.debug(f"Error getting {kind} {namespace}/{name}: {e}")
+            return None
+
     def _check_object_condition(
         self,
         obj: dict,
@@ -175,11 +248,24 @@ class ObjectStateHealthCheckPlugin(AbstractHealthCheckPlugin):
         """
         Check if an object has the specified condition.
 
-        :param obj: Kubernetes object
+        :param obj: Kubernetes object (dict or Kubernetes API object)
         :param condition_type: Condition type to check (e.g., "Ready", "Available")
         :param condition_status: Expected status (e.g., "True", "False")
         :return: Tuple of (passed, message)
         """
+        # Convert Kubernetes API object to dict if needed
+        if not isinstance(obj, dict):
+            try:
+                # Try Kubernetes client serialization first
+                obj = self.krkn_lib.api_client.sanitize_for_serialization(obj)
+            except AttributeError:
+                # If that fails, try converting with vars() for dataclasses/simple objects
+                try:
+                    obj = vars(obj)
+                except (TypeError, AttributeError) as e:
+                    logging.error(f"Failed to convert object to dict: {e}")
+                    return False, f"Failed to convert object to dict: {e}"
+
         kind = obj.get("kind", "Unknown")
         obj_name = obj.get("metadata", {}).get("name", "unknown")
         namespace = obj.get("metadata", {}).get("namespace", "unknown")
@@ -247,26 +333,49 @@ class ObjectStateHealthCheckPlugin(AbstractHealthCheckPlugin):
         # Check condition on all matching objects
         # Requires ALL objects to pass - if ANY object fails, the check fails
         all_passed = True
-        messages = []
+        objects_failed = 0
+        failed_objects = []
 
         for obj in objects:
             passed, message = self._check_object_condition(obj, condition_type, condition_status)
-            messages.append(message)
             if not passed:
                 all_passed = False  # If ANY object fails, overall check fails
+                objects_failed += 1
+                # Extract namespace/name from the object for failed objects list
+                if isinstance(obj, dict):
+                    obj_name = obj.get("metadata", {}).get("name", "unknown")
+                    obj_namespace = obj.get("metadata", {}).get("namespace", "")
+                    if obj_namespace:
+                        failed_objects.append(f"{obj_namespace}/{obj_name}")
+                    else:
+                        failed_objects.append(obj_name)
+
+        # Message only contains names of failed objects
+        message = "; ".join(failed_objects) if failed_objects else "All objects passed"
 
         return {
             "check_name": check_name,
             "passed": all_passed,  # True only if ALL objects passed
             "objects_checked": len(objects),
-            "message": "; ".join(messages)
+            "objects_failed": objects_failed,
+            "message": message
         }
 
-    def run_once(self, config: dict[str, Any]) -> dict[str, Any]:
+    def run_once(
+        self,
+        config: dict[str, Any],
+        telemetry_queue: queue.Queue = None,
+        phase: str = None
+    ) -> dict[str, Any]:
         """
         Runs a one-time object state health check for all configured checks.
 
+        When telemetry_queue is provided, creates ObjectStateCheck telemetry records
+        with the specified phase for each check configuration.
+
         :param config: the health check configuration dictionary
+        :param telemetry_queue: optional queue to put telemetry data for collection
+        :param phase: optional phase indicator ("pre", "post"); defaults to None
         :return: dictionary with results:
                  {
                    "passed": bool,
@@ -280,11 +389,37 @@ class ObjectStateHealthCheckPlugin(AbstractHealthCheckPlugin):
 
         failures = []
         details = {}
+        only_failures = config.get("only_failures", False)
 
         for check_config in config.get("config", []):
             result = self._check_single_config(check_config)
             check_name = result["check_name"]
             details[check_name] = result
+
+            # Create telemetry if queue provided
+            # Only include if: not only_failures OR check failed
+            if telemetry_queue is not None and (not only_failures or not result["passed"]):
+                start_dt = datetime.now()
+                cfg = check_config
+                condition = cfg.get("condition", {})
+
+                telemetry_record = {
+                    "check_name": check_name,
+                    "kind": cfg.get("kind", ""),
+                    "namespace": cfg.get("namespace", ""),
+                    "object_name": cfg.get("object_name", ""),
+                    "condition_type": condition.get("type", ""),
+                    "condition_status": condition.get("status", ""),
+                    "passed": result["passed"],
+                    "objects_checked": result.get("objects_checked", 0),
+                    "objects_failed": result.get("objects_failed", 0),
+                    "start_timestamp": start_dt.isoformat(),
+                    "end_timestamp": start_dt.isoformat(),  # Same time for instant checks
+                    "duration": 0.0,  # Instant check
+                    "message": result["message"],
+                    "phase": phase if phase else "during"  # Default to "during" if not specified
+                }
+                telemetry_queue.put(ObjectStateCheck(telemetry_record))
 
             if not result["passed"]:
                 failures.append({
@@ -323,10 +458,17 @@ class ObjectStateHealthCheckPlugin(AbstractHealthCheckPlugin):
         health_check_tracker = {}
         interval = config.get("interval", 5)
         exit_on_failure = config.get("exit_on_failure", False)
+        only_failures = config.get("only_failures", False)
 
         # Track current status for each check
         status_tracker = {
             cfg.get("name", f"check-{i}"): True
+            for i, cfg in enumerate(config.get("config", []))
+        }
+
+        # Store check configs by name for telemetry
+        check_configs_by_name = {
+            cfg.get("name", f"check-{i}"): cfg
             for i, cfg in enumerate(config.get("config", []))
         }
 
@@ -340,10 +482,11 @@ class ObjectStateHealthCheckPlugin(AbstractHealthCheckPlugin):
                     # First time seeing this check
                     start_timestamp = datetime.now()
                     health_check_tracker[check_name] = {
-                        "check_name": check_name,
                         "passed": result["passed"],
                         "start_timestamp": start_timestamp,
-                        "message": result["message"]
+                        "message": result["message"],
+                        "objects_checked": result.get("objects_checked", 0),
+                        "objects_failed": result.get("objects_failed", 0)
                     }
                     if not result["passed"]:
                         if status_tracker[check_name] != False:
@@ -358,17 +501,31 @@ class ObjectStateHealthCheckPlugin(AbstractHealthCheckPlugin):
                         previous_passed = health_check_tracker[check_name]["passed"]
                         duration = (end_timestamp - start_timestamp).total_seconds()
 
+                        # Get check config details for telemetry
+                        cfg = check_configs_by_name.get(check_name, {})
+                        condition = cfg.get("condition", {})
+
                         # Record the status change period
                         change_record = {
                             "check_name": check_name,
+                            "kind": cfg.get("kind", ""),
+                            "namespace": cfg.get("namespace", ""),
+                            "object_name": cfg.get("object_name", ""),
+                            "condition_type": condition.get("type", ""),
+                            "condition_status": condition.get("status", ""),
                             "passed": previous_passed,
+                            "objects_checked": health_check_tracker[check_name]["objects_checked"],
+                            "objects_failed": health_check_tracker[check_name]["objects_failed"],
                             "start_timestamp": start_timestamp.isoformat(),
                             "end_timestamp": end_timestamp.isoformat(),
                             "duration": duration,
-                            "message": health_check_tracker[check_name]["message"]
+                            "message": health_check_tracker[check_name]["message"],
+                            "phase": "during"
                         }
 
-                        health_check_telemetry.append(HealthCheck(change_record))
+                        # Only include if: not only_failures OR check failed
+                        if not only_failures or not previous_passed:
+                            health_check_telemetry.append(ObjectStateCheck(change_record))
 
                         if status_tracker[check_name] != True:
                             status_tracker[check_name] = True
@@ -376,10 +533,11 @@ class ObjectStateHealthCheckPlugin(AbstractHealthCheckPlugin):
                         # Reset tracker with new status
                         del health_check_tracker[check_name]
                         health_check_tracker[check_name] = {
-                            "check_name": check_name,
                             "passed": result["passed"],
                             "start_timestamp": end_timestamp,
-                            "message": result["message"]
+                            "message": result["message"],
+                            "objects_checked": result.get("objects_checked", 0),
+                            "objects_failed": result.get("objects_failed", 0)
                         }
 
             time.sleep(interval)
@@ -391,17 +549,32 @@ class ObjectStateHealthCheckPlugin(AbstractHealthCheckPlugin):
                 health_check_end_timestamp
                 - health_check_tracker[check_name]["start_timestamp"]
             ).total_seconds()
+
+            # Get check config details for telemetry
+            cfg = check_configs_by_name.get(check_name, {})
+            condition = cfg.get("condition", {})
+
             final_record = {
                 "check_name": check_name,
+                "kind": cfg.get("kind", ""),
+                "namespace": cfg.get("namespace", ""),
+                "object_name": cfg.get("object_name", ""),
+                "condition_type": condition.get("type", ""),
+                "condition_status": condition.get("status", ""),
                 "passed": health_check_tracker[check_name]["passed"],
+                "objects_checked": health_check_tracker[check_name]["objects_checked"],
+                "objects_failed": health_check_tracker[check_name]["objects_failed"],
                 "start_timestamp": health_check_tracker[check_name][
                     "start_timestamp"
                 ].isoformat(),
                 "end_timestamp": health_check_end_timestamp.isoformat(),
                 "duration": duration,
-                "message": health_check_tracker[check_name]["message"]
+                "message": health_check_tracker[check_name]["message"],
+                "phase": "during"
             }
-            health_check_telemetry.append(HealthCheck(final_record))
+            # Only include if: not only_failures OR check failed
+            if not only_failures or not health_check_tracker[check_name]["passed"]:
+                health_check_telemetry.append(ObjectStateCheck(final_record))
 
         # Put telemetry data in the queue
         telemetry_queue.put(health_check_telemetry)

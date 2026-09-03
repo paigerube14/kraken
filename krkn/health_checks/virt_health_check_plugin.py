@@ -362,6 +362,7 @@ class VirtHealthCheckPlugin(AbstractHealthCheckPlugin):
             "check_type": self._compute_check_type(ssh_status, vmi_ready),
             "start_timestamp": datetime.now(),
             "new_ip_address": vm.new_ip_address,
+            "phase": "during",
         }
 
     def thread_join(self):
@@ -559,6 +560,7 @@ class VirtHealthCheckPlugin(AbstractHealthCheckPlugin):
                             "new_ip_address": vm.new_ip_address,
                             "duration": 0,
                             "end_timestamp": start_timestamp.isoformat(),
+                            "phase": "post",
                         }
                     )
                 )
@@ -591,7 +593,12 @@ class VirtHealthCheckPlugin(AbstractHealthCheckPlugin):
         # Start batch checking in worker threads
         self.batch_list(telemetry_queue)
 
-    def run_once(self, config: dict[str, Any]) -> dict[str, Any]:
+    def run_once(
+        self,
+        config: dict[str, Any],
+        telemetry_queue: queue.Queue = None,
+        phase: str = None
+    ) -> dict[str, Any]:
         """
         Runs a one-time virt health check for all configured VMIs.
 
