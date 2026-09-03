@@ -127,6 +127,7 @@ class ObjectStateHealthCheckPlugin(AbstractHealthCheckPlugin):
             # Map kind to appropriate API call
             kind_lower = kind.lower()
 
+            # Use krkn_lib helper methods where available
             if kind_lower == "pod":
                 if label_selector:
                     raw_objects = self.krkn_lib.list_pods(namespace, label_selector)
@@ -140,6 +141,28 @@ class ObjectStateHealthCheckPlugin(AbstractHealthCheckPlugin):
                 raw_objects = self.krkn_lib.list_daemonsets(namespace)
             elif kind_lower == "replicaset":
                 raw_objects = self.krkn_lib.list_replicasets(namespace)
+
+            # Direct Kubernetes API calls for additional resource types
+            elif kind_lower == "service":
+                result = self.krkn_lib.cli.list_namespaced_service(namespace, label_selector=label_selector)
+                raw_objects = result.items if hasattr(result, 'items') else []
+            elif kind_lower == "persistentvolumeclaim":
+                result = self.krkn_lib.cli.list_namespaced_persistent_volume_claim(namespace, label_selector=label_selector)
+                raw_objects = result.items if hasattr(result, 'items') else []
+            elif kind_lower == "job":
+                result = self.krkn_lib.batch_cli.list_namespaced_job(namespace, label_selector=label_selector)
+                raw_objects = result.items if hasattr(result, 'items') else []
+            elif kind_lower == "cronjob":
+                result = self.krkn_lib.batch_cli.list_namespaced_cron_job(namespace, label_selector=label_selector)
+                raw_objects = result.items if hasattr(result, 'items') else []
+
+            # Cluster-scoped resources
+            elif kind_lower == "node":
+                raw_objects = self.krkn_lib.list_nodes(label_selector)
+            elif kind_lower == "persistentvolume":
+                result = self.krkn_lib.cli.list_persistent_volume(label_selector=label_selector)
+                raw_objects = result.items if hasattr(result, 'items') else []
+
             else:
                 # For other kinds, try to get via dynamic client
                 logging.warning(
@@ -214,25 +237,37 @@ class ObjectStateHealthCheckPlugin(AbstractHealthCheckPlugin):
         try:
             kind_lower = kind.lower()
 
-            if kind_lower == "pod":
-                # Get raw Kubernetes Pod object instead of krkn_lib's simplified Pod dataclass
-                obj = self.krkn_lib.cli.read_namespaced_pod(name, namespace)
+            # Mapping of namespaced resource kind to (api_client, method_name)
+            namespaced_api_map = {
+                'pod': (self.krkn_lib.cli, 'read_namespaced_pod'),
+                'deployment': (self.krkn_lib.apps_api, 'read_namespaced_deployment'),
+                'statefulset': (self.krkn_lib.apps_api, 'read_namespaced_stateful_set'),
+                'daemonset': (self.krkn_lib.apps_api, 'read_namespaced_daemon_set'),
+                'replicaset': (self.krkn_lib.apps_api, 'read_namespaced_replica_set'),
+                'service': (self.krkn_lib.cli, 'read_namespaced_service'),
+                'persistentvolumeclaim': (self.krkn_lib.cli, 'read_namespaced_persistent_volume_claim'),
+                'job': (self.krkn_lib.batch_cli, 'read_namespaced_job'),
+                'cronjob': (self.krkn_lib.batch_cli, 'read_namespaced_cron_job'),
+            }
+
+            # Mapping of cluster-scoped resources to (api_client, method_name)
+            cluster_scoped_api_map = {
+                'node': (self.krkn_lib.cli, 'read_node'),
+                'persistentvolume': (self.krkn_lib.cli, 'read_persistent_volume'),
+            }
+
+            if kind_lower in namespaced_api_map:
+                api_client, method_name = namespaced_api_map[kind_lower]
+                method = getattr(api_client, method_name)
+                obj = method(name, namespace)
                 return self.krkn_lib.api_client.sanitize_for_serialization(obj)
-            elif kind_lower == "deployment":
-                # Get deployment using read_namespaced_deployment
-                obj = self.krkn_lib.apps_api.read_namespaced_deployment(name, namespace)
-                return self.krkn_lib.api_client.sanitize_for_serialization(obj)
-            elif kind_lower == "statefulset":
-                obj = self.krkn_lib.apps_api.read_namespaced_stateful_set(name, namespace)
-                return self.krkn_lib.api_client.sanitize_for_serialization(obj)
-            elif kind_lower == "daemonset":
-                obj = self.krkn_lib.apps_api.read_namespaced_daemon_set(name, namespace)
-                return self.krkn_lib.api_client.sanitize_for_serialization(obj)
-            elif kind_lower == "replicaset":
-                obj = self.krkn_lib.apps_api.read_namespaced_replica_set(name, namespace)
+            elif kind_lower in cluster_scoped_api_map:
+                api_client, method_name = cluster_scoped_api_map[kind_lower]
+                method = getattr(api_client, method_name)
+                obj = method(name)  # No namespace for cluster-scoped resources
                 return self.krkn_lib.api_client.sanitize_for_serialization(obj)
             else:
-                logging.warning(f"Cannot get individual {kind} object")
+                logging.warning(f"Cannot get individual {kind} object - unsupported resource type")
                 return None
 
         except Exception as e:
