@@ -131,10 +131,11 @@ telemetry:
 
 health_checks:                                              # HTTP health check endpoints
     interval: 2                                             # Check interval in seconds (for run_during: "during")
-    run_during: during                                      # When to run: "pre", "during", "post", or ["pre", "post"]
+    run_during: post                                      # When to run: "pre", "during", "post", or ["pre", "post"]
     exit_on_failure: False                                  # True: pre-checks block chaos, post-checks fail run
+    only_failures: False                                    # True: only create telemetry for failed checks, False: report all
     config:
-        - url:                                              # Application endpoint URL
+        - url: 
           bearer_token:                                     # Optional: Bearer token
           auth:                                             # Optional: Basic auth "username,password"
 
@@ -150,14 +151,15 @@ kubevirt_checks:                                            # VMI SSH accessibil
     node_names: ""                                          # Filter by worker node names (optional)
 
 object_state_checks:                                        # Kubernetes object condition checks
-    interval: 5                                             # Check interval in seconds
-    run_during: during                                      # When to run: "pre", "during", "post", or ["pre", "post"]
-    exit_on_failure: False                                  # True: pre-checks block chaos, post-checks fail run
+    interval: 2                                           # Check interval in seconds
+    run_during: ["pre", "during"]                                      # When to run: "pre", "during", "post", or ["pre", "post"]
+    exit_on_failure: True                                  # True: pre-checks block chaos, post-checks fail run
+    only_failures: False                                    # True: only create telemetry for failed checks, False: report all
     config:
-        - name: ""                                          # Check name (e.g., "etcd-pods-ready")
-          kind: ""                                          # Resource kind: Pod, Deployment, StatefulSet, etc.
+        - name: "ready-pods"                                # Check name (e.g., "etcd-pods-ready")
+          kind: "Pod"                                       # Resource kind: Pod, Deployment, StatefulSet, etc.
           object_name: ""                                   # Name or regex pattern (e.g., "etcd-.*")
-          namespace: ""                                     # Namespace to check
+          namespace: "default"                              # Namespace to check
           label_selector: ""                                # Optional: Label selector
           condition:
               type: Ready                                   # Condition type: Ready, Available, Progressing
