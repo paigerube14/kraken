@@ -229,47 +229,15 @@ class ObjectStateHealthCheckPlugin(AbstractHealthCheckPlugin):
         """
         Get a single Kubernetes object by name.
 
+        Delegates to krkn_lib's universal get_object_by_name() helper method.
+
         :param kind: Kubernetes resource kind
         :param namespace: Namespace
         :param name: Object name
         :return: Object dictionary or None
         """
         try:
-            kind_lower = kind.lower()
-
-            # Mapping of namespaced resource kind to (api_client, method_name)
-            namespaced_api_map = {
-                'pod': (self.krkn_lib.cli, 'read_namespaced_pod'),
-                'deployment': (self.krkn_lib.apps_api, 'read_namespaced_deployment'),
-                'statefulset': (self.krkn_lib.apps_api, 'read_namespaced_stateful_set'),
-                'daemonset': (self.krkn_lib.apps_api, 'read_namespaced_daemon_set'),
-                'replicaset': (self.krkn_lib.apps_api, 'read_namespaced_replica_set'),
-                'service': (self.krkn_lib.cli, 'read_namespaced_service'),
-                'persistentvolumeclaim': (self.krkn_lib.cli, 'read_namespaced_persistent_volume_claim'),
-                'job': (self.krkn_lib.batch_cli, 'read_namespaced_job'),
-                'cronjob': (self.krkn_lib.batch_cli, 'read_namespaced_cron_job'),
-            }
-
-            # Mapping of cluster-scoped resources to (api_client, method_name)
-            cluster_scoped_api_map = {
-                'node': (self.krkn_lib.cli, 'read_node'),
-                'persistentvolume': (self.krkn_lib.cli, 'read_persistent_volume'),
-            }
-
-            if kind_lower in namespaced_api_map:
-                api_client, method_name = namespaced_api_map[kind_lower]
-                method = getattr(api_client, method_name)
-                obj = method(name, namespace)
-                return self.krkn_lib.api_client.sanitize_for_serialization(obj)
-            elif kind_lower in cluster_scoped_api_map:
-                api_client, method_name = cluster_scoped_api_map[kind_lower]
-                method = getattr(api_client, method_name)
-                obj = method(name)  # No namespace for cluster-scoped resources
-                return self.krkn_lib.api_client.sanitize_for_serialization(obj)
-            else:
-                logging.warning(f"Cannot get individual {kind} object - unsupported resource type")
-                return None
-
+            return self.krkn_lib.get_object_by_name(kind, name, namespace)
         except Exception as e:
             logging.debug(f"Error getting {kind} {namespace}/{name}: {e}")
             return None
